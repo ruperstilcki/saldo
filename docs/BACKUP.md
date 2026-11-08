@@ -31,11 +31,11 @@ gpg --output saldo.dump --decrypt saldo-*.dump.gpg
 docker run -d --name saldo-restore -e POSTGRES_PASSWORD=temp postgres:17
 sleep 5
 docker cp saldo.dump saldo-restore:/saldo.dump
-docker exec saldo-restore psql -U postgres -c "create role anon; create role authenticated; create role service_role;"
-docker exec saldo-restore pg_restore -U postgres -d postgres --no-owner --no-privileges --exit-on-error /saldo.dump
-docker exec saldo-restore psql -U postgres -c "select (select count(*) from public.wallets) wallets, (select count(*) from public.transactions) transactions, (select count(*) from public.categories) categories;"
+docker exec saldo-restore psql -U postgres -c "drop schema public cascade; create role anon; create role authenticated; create role service_role;"
+docker exec saldo-restore pg_restore -U postgres -d postgres --no-owner --no-privileges /saldo.dump
+docker exec saldo-restore psql -U postgres -c "select w.name, w.currency_code, (w.opening_balance_minor + coalesce(sum(case when t.kind in ('INCOME','TRANSFER_IN') then t.amount_minor else -t.amount_minor end) filter (where t.deleted_at is null), 0)) / 100.0 as balance from public.wallets w left join public.transactions t on t.user_id = w.user_id and t.wallet_id = w.id where w.deleted_at is null group by w.user_id, w.id order by w.name;"
 docker rm -f saldo-restore
 rm saldo.dump
 ```
 
-The counts must match the app. Delete the decrypted file afterwards: it holds real financial data.
+The balances must match the app, to the para. The last two commands remove the decrypted copies: they hold real financial data.

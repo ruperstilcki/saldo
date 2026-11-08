@@ -1,66 +1,210 @@
+/* Same colors as the phone's fallback theme. Month colors live in src/ui/monthTints.ts. */
 :root {
-  --bg: #f5f6f8;
-  --surface: #ffffff;
-  --text: #1b1d21;
-  --muted: #5d6470;
-  --border: #d9dde3;
-  --accent: #1f5fbf;
-  --accent-text: #ffffff;
-  --danger: #b3261e;
+  color-scheme: light;
+  --bg: #f3f1f8;
+  --surface: #fbf8ff;
+  --surface-high: #e9e7ef;
+  --text: #1b1b21;
+  --muted: #5b5e68;
+  --border: #c5c6d0;
+  --primary: #1e5bb8;
+  --on-primary: #ffffff;
+  --primary-container: #d8e2ff;
+  --on-primary-container: #001a41;
+  --danger: #ba1a1a;
+  --row-line: rgb(27 27 33 / 12%);
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15171a;
-    --surface: #1f2226;
-    --text: #e8eaed;
-    --muted: #a3a9b3;
-    --border: #363a41;
-    --accent: #8ab4f8;
-    --accent-text: #10243f;
-    --danger: #f2b8b5;
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #0c0e13;
+    --surface: #111318;
+    --surface-high: #282a2f;
+    --text: #e3e1e9;
+    --muted: #b0b2bc;
+    --border: #44474f;
+    --primary: #aac7ff;
+    --on-primary: #002f65;
+    --primary-container: #17427f;
+    --on-primary-container: #d8e2ff;
+    --danger: #ffb4ab;
+    --row-line: rgb(227 225 233 / 12%);
   }
 }
 
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); }
-h1, h2 { margin: 0 0 12px; font-size: 1.1rem; }
-ul { margin: 0; padding: 0; list-style: none; }
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0c0e13;
+  --surface: #111318;
+  --surface-high: #282a2f;
+  --text: #e3e1e9;
+  --muted: #b0b2bc;
+  --border: #44474f;
+  --primary: #aac7ff;
+  --on-primary: #002f65;
+  --primary-container: #17427f;
+  --on-primary-container: #d8e2ff;
+  --danger: #ffb4ab;
+  --row-line: rgb(227 225 233 / 12%);
+}
 
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+h1, h2, p { margin: 0; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.05rem; }
+ul { margin: 0; padding: 0; list-style: none; }
+small { font-size: 0.8rem; }
+
+button, select, textarea { font: inherit; color: inherit; }
 button {
-  font: inherit;
-  color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px 12px;
+  padding: 7px 12px;
   cursor: pointer;
 }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+button:hover:not(:disabled) { background: var(--surface-high); }
+button:disabled { opacity: 0.5; cursor: default; }
+button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+button.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 button.danger { color: var(--danger); border-color: var(--danger); }
+button.link { background: none; border: 0; color: var(--primary); padding: 8px 4px; text-align: left; }
 
-.center { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; width: min(420px, 100%); }
-.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .muted { color: var(--muted); }
-.notice { margin: 12px 16px 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
-
-.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
-.status { color: var(--muted); }
 .spacer { flex: 1; }
+.empty { padding: 16px 4px; }
+.right { text-align: right; }
 
-.layout { display: grid; gap: 16px; padding: 16px; grid-template-columns: minmax(0, 1fr); }
+/* ---------- screens without the app frame */
+.center { min-height: 100%; display: grid; place-items: center; padding: 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; width: min(420px, 100%); display: grid; gap: 12px; }
+.signin { text-align: center; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+
+/* ---------- app frame: panes scroll on their own, the page never scrolls sideways */
+.app { height: 100%; display: flex; flex-direction: column; }
+.bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.brand { background: none; border: 0; font-weight: 700; font-size: 1.15rem; padding: 4px 0; }
+.brand:hover:not(:disabled) { background: none; color: var(--primary); }
+.status { color: var(--muted); font-size: 0.87rem; }
+.notice { flex: none; margin: 12px 16px 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+
+.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.side { min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.pane { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--surface); container: pane / inline-size; }
+.pane-empty { display: grid; place-items: center; padding: 32px; text-align: center; }
+
+/* A phone shows either the list or the wallet. */
+.app:not(.wallet-open) .pane-empty { display: none; }
+.app.wallet-open .side { display: none; }
+
 @media (min-width: 900px) {
-  .layout { grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); align-items: start; }
+  .layout { grid-template-columns: 360px minmax(0, 1fr); }
+  .app .side, .app.wallet-open .side { display: flex; border-right: 1px solid var(--border); }
+  .app:not(.wallet-open) .pane-empty { display: grid; }
+  .back { display: none; }
 }
 
-.list { display: grid; gap: 6px; }
-.row { width: 100%; display: flex; gap: 12px; justify-content: space-between; align-items: baseline; text-align: left; }
-.row.selected { border-color: var(--accent); }
-.amount { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.date { white-space: nowrap; }
-.note { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+@media (min-width: 1500px) {
+  .layout { grid-template-columns: 420px minmax(0, 1fr); }
+}
 
-.backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / 45%); }
-textarea { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+/* ---------- wallets */
+.total-card { background: var(--primary-container); color: var(--on-primary-container); border-radius: 14px; padding: 16px; display: grid; gap: 4px; }
+.total-amount { font-size: 1.25rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.total-spent { margin-top: 4px; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+
+.cards { display: grid; gap: 8px; }
+.card-item { display: flex; gap: 6px; align-items: stretch; }
+.card-item.dragging { opacity: 0.75; }
+.card-item.dragging .wallet-card { border-color: var(--primary); box-shadow: 0 4px 14px rgb(0 0 0 / 25%); }
+.wallet-card { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 12px; text-align: left; border-radius: 12px; }
+.wallet-card.selected { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.wallet-card-text { min-width: 0; display: grid; gap: 1px; }
+.wallet-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wallet-balance { font-size: 1.1rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.wallet-last { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.handle { flex: none; width: 30px; padding: 0; color: var(--muted); touch-action: none; cursor: grab; border-radius: 10px; }
+.dragging .handle { cursor: grabbing; }
+
+.avatar { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 600; object-fit: cover; }
+.avatar.large { width: 48px; height: 48px; }
+
+/* ---------- wallet header */
+.pane-header { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.pane-title { min-width: 0; }
+.pane-title h2 { font-weight: 500; overflow-wrap: anywhere; }
+.pane-balance { font-size: 1.35rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ---------- table: the same columns for the labels and the rows */
+.columns, .tx { display: grid; grid-template-columns: 150px minmax(0, 1fr) minmax(130px, auto); column-gap: 14px; }
+.columns { flex: none; padding: 5px 16px; color: var(--muted); font-size: 0.8rem; border-bottom: 1px solid var(--border); }
+.table { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* The same figure columns in every header, so totals line up from month to month. */
+.group { width: 100%; border: 0; border-radius: 0; text-align: left; display: grid; grid-template-columns: 16px minmax(130px, 1fr) 150px 180px 250px 70px; align-items: baseline; column-gap: 14px; padding: 8px 16px; font-variant-numeric: tabular-nums; }
+.group:hover:not(:disabled) { filter: brightness(0.97); }
+.group small { opacity: 0.8; }
+.group.year { background: var(--primary-container); color: var(--on-primary-container); }
+.group.year:hover:not(:disabled) { background: var(--primary-container); }
+.group.year .group-title { font-size: 1.2rem; font-weight: 700; }
+.group.month { position: sticky; top: 0; z-index: 2; color: var(--text); box-shadow: 0 1px 0 var(--row-line); }
+.group.month .group-title { font-weight: 600; }
+.group-figure { text-align: right; white-space: nowrap; }
+.group-count { text-align: right; font-size: 0.8rem; opacity: 0.85; white-space: nowrap; }
+
+/* A narrow pane (a phone, or a small window beside the list): the title line, then the figures. */
+@container pane (max-width: 860px) {
+  .group { display: flex; flex-wrap: wrap; gap: 1px 12px; padding: 7px 12px; }
+  /* Wide enough that the figures never climb up next to the title. */
+  .group-title { flex: 1 1 calc(100% - 120px); min-width: 0; }
+  .group-count { order: 1; }
+  .group-figure { order: 2; font-size: 0.87rem; }
+  .group-balance { order: 3; flex-basis: 100%; text-align: left; }
+}
+
+.tx { width: 100%; border: 0; border-bottom: 1px solid var(--row-line); border-radius: 0; background: transparent; text-align: left; padding: 7px 16px; align-items: center; }
+.tx:hover:not(:disabled) { filter: brightness(0.97); background: transparent; }
+.tx-date { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.tx-date small { color: var(--muted); }
+.tx-note { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
+.tx-note-text { min-width: 0; overflow-wrap: anywhere; }
+.tx-amount { display: flex; justify-content: flex-end; align-items: center; gap: 7px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.swatch { flex: none; width: 10px; height: 10px; border-radius: 2px; }
+.chip { border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; font-size: 0.78rem; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+.tx.checker { outline: 2px solid var(--primary); outline-offset: -2px; }
+.checker-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--primary); }
+.tx.flash { animation: blink 0.44s ease-in-out 2; }
+@keyframes blink { 50% { box-shadow: inset 0 0 0 100px color-mix(in srgb, var(--primary) 35%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .tx.flash { animation: none; } }
+
+/* On a phone: the date over its time, and the category under the note. */
+@media (max-width: 640px) {
+  .status { order: 5; flex-basis: 100%; }
+  .columns, .tx { grid-template-columns: 82px minmax(0, 1fr) auto; column-gap: 8px; padding-left: 12px; padding-right: 12px; }
+  .tx-date { flex-wrap: wrap; gap: 0 4px; }
+  .tx-date small { flex-basis: 100%; }
+  .tx-note { flex-direction: column; align-items: flex-start; }
+}
+
+/* ---------- dialogs */
+.backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / 50%); }
+.modal { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: min(520px, 100%); max-height: 100%; overflow-y: auto; display: grid; gap: 12px; }
+.modal:focus { outline: none; }
+.details-amount { font-size: 1.4rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.details-note { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+.field { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 16px; }
+select { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; max-width: 100%; }
+.settings-account { display: grid; gap: 2px; padding-top: 10px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .backdrop { place-items: end stretch; padding: 0; }
+  .modal { width: 100%; border-radius: 16px 16px 0 0; border-width: 1px 0 0; max-height: 90%; }
+}

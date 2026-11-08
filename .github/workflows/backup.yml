@@ -1,4 +1,4 @@
-# Weekly encrypted database backup to Google Drive (web/SPEC.md §10). Setup and restore: docs/BACKUP.md
+# Weekly encrypted database backup to Google Drive (web/SPEC.md §11). Setup and restore: docs/BACKUP.md
 name: Database backup
 
 on:

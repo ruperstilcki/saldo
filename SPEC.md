@@ -181,7 +181,7 @@ Prenesi logiku u TypeScript i prenesi i testove iz `android/app/src/test/`, sa i
 
 | Faza | Sadržaj | Provera |
 |---|---|---|
-| **W1** | Backup (§10), Vite projekat, Google prijava i sesija, Dexie šema, sync (push pa pull), spisak wallet-a sa stanjima, mali dijalog za izmenu beleške radi testa push-a, deploy na Cloudflare Pages | Podaci sa telefona se vide na webu; stanja wallet-a su ista kao na telefonu, do pare |
+| **W1** | Backup (§11), Vite projekat, Google prijava i sesija, Dexie šema, sync (push pa pull), spisak wallet-a sa stanjima, mali dijalog za izmenu beleške radi testa push-a, deploy na Cloudflare Pages | Podaci sa telefona se vide na webu; stanja wallet-a su ista kao na telefonu, do pare |
 | **W2** | Wallets i tabela, boje meseci, skupljanje, checker, detalji | Izgled i zbirovi po mesecima se slažu sa telefonom |
 | **W3** | Forme, brisanje + Undo, slike | Izmena na webu se vidi na telefonu i obrnuto; Undo ostaje vraćen i posle sync-a |
 | **W4** | Pretraga, filteri, statistika, kategorije, naknade, podešavanja | Isti filter daje isti broj stavki i zbir kao na telefonu |
@@ -194,7 +194,12 @@ Prenesi logiku u TypeScript i prenesi i testove iz `android/app/src/test/`, sa i
 3. Drugi sync bez izmena preuzima **najviše redove iz poslednjeg minuta**, ne celu tabelu.
 4. Na serveru nema dupliranih kategorija po istom nazivu.
 
-## 10. Backup
+## 10. Status
+
+- **W1:** završen 2026-11-08. Test iz §9 je prošao na pravom telefonu i serveru, na `https://saldo-49s.pages.dev`.
+- **W2:** kod je gotov 2026-11-08; poređenje izgleda i zbirova sa telefonom radi korisnik. Tema, jačina boja meseci i podrazumevano skupljanje su već u Settings, jer su potrebni za tabelu. Dok W3 ne donese pravu formu, red ima samo Edit note i Set/Remove checker.
+
+## 11. Backup
 
 Nedeljni backup ide na Google Drive, a kopija na računaru se može dodati kasnije. Mora da postoji i da je proveren pre prvog upisa sa weba u stvarne podatke.
 
