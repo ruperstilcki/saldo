@@ -10,9 +10,10 @@ export interface AppSettings {
   monthTint: MonthTintStrength
   monthsDefault: GroupDefault
   yearsDefault: GroupDefault
+  showQuickPicksInAutocomplete: boolean
 }
 
-const DEFAULTS: AppSettings = { theme: 'SYSTEM', monthTint: 'NORMAL', monthsDefault: 'EXPANDED', yearsDefault: 'EXPANDED' }
+const DEFAULTS: AppSettings = { theme: 'SYSTEM', monthTint: 'NORMAL', monthsDefault: 'EXPANDED', yearsDefault: 'EXPANDED', showQuickPicksInAutocomplete: true }
 const KEY = 'saldo.settings'
 
 function load(): AppSettings {

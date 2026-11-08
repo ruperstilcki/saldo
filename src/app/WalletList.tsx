@@ -8,7 +8,7 @@ import { isIncoming } from '../domain/rows'
 import type { CurrencySum, WalletSummary } from '../domain/walletSummaries'
 import { moveItem } from '../ui/reorder'
 import { WalletAvatar } from './Common'
-import { navigate, walletPath } from './router'
+import { navigate, newWalletPath, walletPath } from './router'
 import { syncManager } from './services'
 import { useCardDrag } from './useCardDrag'
 
@@ -37,7 +37,8 @@ export function WalletList({ showArchived, active, archived, totals, spent, sele
           </p>
         )}
       </section>
-      {loaded && active.length === 0 && <p className="muted empty">No wallets yet.</p>}
+      <button className="primary new-wallet" onClick={() => navigate(newWalletPath())}>New wallet</button>
+      {loaded && active.length === 0 && <p className="muted empty">No wallets yet. Create your first one.</p>}
       <SortableWallets summaries={active} selectedId={selectedId} />
       <button className="link" onClick={() => navigate('/archived')}>Archived wallets ({archived.length})</button>
     </aside>

@@ -24,11 +24,14 @@ interface Server {
   upserts: { table: string; body: Record<string, unknown>[] }[]
   logouts: string[]
   offline: boolean
+  uploads: { path: string; type: string | null }[]
+  /** Rows that later rounds will receive, as if another device had sent them. */
+  rows: Record<string, unknown[]>
 }
 
 /** Answers everything the app asks of Supabase, and records what it sends. */
 async function fakeSupabase(page: Page, rows: Record<string, unknown[]> = { wallets: [wallet], transactions: [tx], categories: [category] }): Promise<Server> {
-  const server: Server = { upserts: [], logouts: [], offline: false }
+  const server: Server = { upserts: [], logouts: [], offline: false, uploads: [], rows }
   await page.route(`${SUPABASE}/**`, async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -38,6 +41,10 @@ async function fakeSupabase(page: Page, rows: Record<string, unknown[]> = { wall
     if (url.pathname === '/auth/v1/logout') {
       server.logouts.push(url.searchParams.get('scope') ?? '')
       return route.fulfill({ status: 204, headers: cors })
+    }
+    if (url.pathname.startsWith('/storage/v1/object/')) {
+      server.uploads.push({ path: url.pathname.replace('/storage/v1/object/', ''), type: request.headers()['content-type'] ?? null })
+      return route.fulfill({ json: { Key: 'x', Id: 'x' }, headers: cors })
     }
     if (url.pathname === '/rest/v1/rpc/saldo_now_ms') return route.fulfill({ json: Date.now(), headers: cors })
     const table = url.pathname.replace('/rest/v1/', '')
@@ -120,7 +127,7 @@ test('editing a note is pushed with the protocol fields, and survives', async ({
 
   await page.getByRole('button', { name: /Test wallet/ }).click()
   await page.locator('.tx', { hasText: /Made up note/ }).click()
-  await page.getByRole('button', { name: 'Edit note' }).click()
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
   await page.getByLabel('Note', { exact: true }).fill('Edited on the web')
   await page.getByRole('button', { name: 'Save' }).click()
   await page.getByRole('button', { name: 'Sync now' }).click()
@@ -141,7 +148,7 @@ test('offline: the change stays and goes out when the connection returns', async
 
   server.offline = true
   await page.locator('.tx', { hasText: /Made up note/ }).click()
-  await page.getByRole('button', { name: 'Edit note' }).click()
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
   await page.getByLabel('Note', { exact: true }).fill('Offline edit')
   await page.getByRole('button', { name: 'Save' }).click()
   await page.getByRole('button', { name: 'Sync now' }).click()
@@ -198,7 +205,7 @@ test('leaving without a connection: unsent changes stay hidden and return with t
   await page.getByRole('button', { name: /Test wallet/ }).click()
   server.offline = true
   await page.locator('.tx', { hasText: /Made up note/ }).click()
-  await page.getByRole('button', { name: 'Edit note' }).click()
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
   await page.getByLabel('Note', { exact: true }).fill('Kept while signed out')
   await page.getByRole('button', { name: 'Save' }).click()
   await signOut(page)
@@ -580,6 +587,519 @@ test('on a phone the figures of a header stay under its title', async ({ page })
   }
 })
 
+// ---------------------------------------------------------------- W3
+
+const formRows = {
+  wallets: [wallet, second, third],
+  categories: [
+    { ...main, kind: 'EXPENSE' },
+    { ...sub, kind: 'EXPENSE', is_quick_pick: true },
+    { ...category, id: 'other', name: 'Mango', level: 'SUB', parent_id: null, kind: 'EXPENSE', updated_at: 12 },
+    { ...category, id: 'salary', name: 'Salary', level: 'MAIN', kind: 'INCOME', updated_at: 12 },
+  ],
+  transactions: [makeTx('nov', at(2026, 11, 5), 1000), makeTx('oct', at(2026, 10, 3), 2000)],
+}
+
+const form = (page: Page, name: string) => page.getByRole('dialog', { name })
+const saved = (server: Server, table = 'transactions') => server.upserts.filter((u) => u.table === table).flatMap((u) => u.body)
+const sync = (page: Page) => page.getByRole('button', { name: 'Sync now' }).click()
+
+async function openRow(page: Page, text: RegExp) {
+  await page.locator('.tx', { hasText: text }).click()
+  return page.getByRole('dialog', { name: 'Transaction details' })
+}
+
+test.describe('transaction form', () => {
+  test('a new transaction appears in the table, changes the balance and goes out correctly', async ({ page }) => {
+    const server = await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    const dialog = form(page, 'New transaction')
+    await expect(page.getByLabel('Amount')).toBeFocused()
+
+    await page.getByLabel('Amount').fill('1.459,96')
+    await page.getByLabel('Date').fill('07.11.2026')
+    await page.getByLabel('Time').fill('14:22')
+    await page.getByLabel('Note').fill('Lunch\nwith a second line')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+
+    await expect(dialog).toHaveCount(0)
+    await expect(page).toHaveURL(/\/wallet\/w1$/)
+    const row = page.locator('.tx', { hasText: 'Lunch' })
+    await expect(row).toContainText('07.11.2026')
+    await expect(row).toContainText('14:22')
+    await expect(row).toContainText('−1.459,96')
+    await expect(page.locator('.pane-balance')).toContainText('−489,96 RSD') // 1.000,00 − 10,00 − 20,00 − 1.459,96
+
+    await sync(page)
+    await expect.poll(() => saved(server).length).toBe(1)
+    const sent = saved(server)[0]!
+    expect(sent).toMatchObject({
+      wallet_id: 'w1', kind: 'EXPENSE', amount_minor: 145996, note: 'Lunch\nwith a second line', source: 'MANUAL',
+      occurred_at: new Date(2026, 10, 7, 14, 22).getTime(), deleted_at: null, recurring_rule_id: null, period_key: null, user_id: UID,
+    })
+    expect(sent.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(sent.created_at).toBeGreaterThan(0)
+    expect(sent).not.toHaveProperty('updated_at')
+  })
+
+  test('refuses bad input, with a clear message, and keeps what was typed', async ({ page }) => {
+    await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    const dialog = form(page, 'New transaction')
+    const save = dialog.getByRole('button', { name: 'Save' })
+
+    await save.click()
+    await expect(dialog.getByRole('alert')).toHaveText('Enter an amount')
+    await page.getByLabel('Amount').fill('2.1091')
+    await save.click()
+    await expect(dialog.getByRole('alert')).toHaveText('Max 2 decimals')
+    await page.getByLabel('Amount').fill('0')
+    await save.click()
+    await expect(dialog.getByRole('alert')).toHaveText('Amount must not be zero')
+
+    await page.getByLabel('Amount').fill('5')
+    await page.getByLabel('Date').fill('31.02.2026')
+    await page.getByLabel('Time').fill('25:00')
+    await save.click()
+    await expect(dialog.getByRole('alert').first()).toHaveText('Enter the date as dd.MM.yyyy')
+    await expect(dialog.getByRole('alert').last()).toHaveText('Enter the time as HH:mm')
+    await expect(page.getByLabel('Amount')).toHaveValue('5')
+    await expect(dialog).toBeVisible()
+  })
+
+  test('accepts a comma and a dot, and Income makes it positive', async ({ page }) => {
+    const server = await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    await page.getByRole('radio', { name: 'Income' }).click()
+    await page.getByLabel('Amount').fill('12.5')
+    await page.keyboard.press('Enter')
+    await expect(form(page, 'New transaction')).toHaveCount(0)
+    await sync(page)
+    await expect.poll(() => saved(server)[0]).toMatchObject({ kind: 'INCOME', amount_minor: 1250 })
+  })
+
+  test('an edit changes the row and keeps its id, date and time', async ({ page }) => {
+    const server = await openWallet(page, formRows)
+    await (await openRow(page, /Note oct/)).getByRole('button', { name: 'Edit', exact: true }).click()
+    const dialog = form(page, 'Edit transaction')
+    await expect(page.getByLabel('Amount')).toHaveValue('20,00')
+    await expect(page.getByLabel('Date')).toHaveValue('03.10.2026')
+    await expect(page.getByLabel('Time')).toHaveValue('12:30')
+    await page.getByLabel('Amount').fill('33,50')
+    await page.getByLabel('Note').fill('Changed note')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+
+    await expect(page.locator('.tx', { hasText: 'Changed note' })).toContainText('−33,50')
+    await sync(page)
+    await expect.poll(() => saved(server)[0]).toMatchObject({ id: 'oct', amount_minor: 3350, note: 'Changed note', created_at: 1 })
+  })
+
+  test('a monthly fee stays a monthly fee after an edit, but its duplicate is a normal row', async ({ page }) => {
+    const fee = makeTx('fee', at(2026, 10, 31), 500, 'EXPENSE', { source: 'RECURRING', recurring_rule_id: 'r1', period_key: '2026-10' })
+    const server = await openWallet(page, { ...formRows, transactions: [...formRows.transactions, fee] })
+
+    await (await openRow(page, /Note fee/)).getByRole('button', { name: 'Duplicate' }).click()
+    const copy = form(page, 'Duplicate transaction')
+    await expect(page.getByLabel('Amount')).toHaveValue('5,00')
+    await expect(page.getByLabel('Note')).toHaveValue('Note fee')
+    await expect(page.getByLabel('Date')).not.toHaveValue('31.10.2026')
+    await copy.getByRole('button', { name: 'Save' }).click()
+    await expect(page.locator('.tx', { hasText: 'Note fee' })).toHaveCount(2)
+    await sync(page)
+    await expect.poll(() => saved(server).length).toBe(1)
+    const sent = saved(server)[0]!
+    expect(sent.id).not.toBe('fee')
+    expect(sent).toMatchObject({ source: 'MANUAL', recurring_rule_id: null, period_key: null })
+
+    await expect(page.getByRole('status')).not.toContainText('unsent')
+    await (await openRow(page, /Note fee.*31\.10|31\.10.*Note fee/)).getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByLabel('Note').fill('Fee edited')
+    await form(page, 'Edit transaction').getByRole('button', { name: 'Save' }).click()
+    await expect(page.locator('.tx', { hasText: 'Fee edited' })).toBeVisible()
+    await sync(page)
+    await expect.poll(() => saved(server).at(-1)).toMatchObject({ id: 'fee', source: 'RECURRING', recurring_rule_id: 'r1', period_key: '2026-10' })
+  })
+
+  test('foreign currency needs a currency, and is shown in the details', async ({ page }) => {
+    const server = await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    const dialog = form(page, 'New transaction')
+    await page.getByLabel('Amount').fill('71234')
+    await page.getByLabel('Note').fill('Foreign one')
+    await dialog.getByRole('button', { name: /Foreign currency/ }).click()
+    await page.getByLabel('Original amount').fill('607')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('Choose the currency')
+
+    await dialog.getByRole('button', { name: 'Choose' }).click()
+    await page.getByLabel('Search currencies').fill('eur')
+    await page.getByRole('button', { name: /^EUR Euro/ }).click()
+    await expect(page.getByRole('dialog', { name: 'Choose currency' })).toHaveCount(0)
+    await dialog.getByRole('button', { name: 'Save' }).click()
+
+    await expect(await openRow(page, /Foreign one/)).toContainText('Original: 607,00 EUR (Euro)')
+    await page.keyboard.press('Escape')
+    await sync(page)
+    await expect.poll(() => saved(server)[0]).toMatchObject({ original_amount_minor: 60700, original_currency: 'EUR' })
+  })
+
+  test('leaving with changes asks first, through Close, Escape and Back', async ({ page }) => {
+    await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    const dialog = form(page, 'New transaction')
+
+    // Nothing typed yet: no question.
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    await page.getByLabel('Amount').fill('5')
+    const confirm = page.getByRole('dialog', { name: 'Discard changes?' })
+
+    await dialog.getByRole('button', { name: 'Close' }).click()
+    await expect(confirm).toBeVisible()
+    await confirm.getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByLabel('Amount')).toHaveValue('5')
+
+    await page.getByLabel('Amount').press('Escape')
+    await expect(confirm).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(confirm).toHaveCount(0)
+    await expect(page.getByLabel('Amount')).toHaveValue('5')
+
+    await page.goBack()
+    await expect(confirm).toBeVisible()
+    await expect(page).toHaveURL(/\/new$/)
+    await expect(page.getByLabel('Amount')).toHaveValue('5')
+
+    await confirm.getByRole('button', { name: 'Discard' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page).toHaveURL(/\/wallet\/w1$/)
+    await expect(page.getByRole('status')).not.toContainText('unsent')
+  })
+
+  test('a sync while the form is open does not touch what is being typed', async ({ page }) => {
+    await openWallet(page, formRows)
+    await (await openRow(page, /Note oct/)).getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByLabel('Note').fill('Being typed')
+    // A round started in the background, the way the connection coming back starts one.
+    const nextRound = page.waitForRequest((request) => request.url().includes('saldo_now_ms'))
+    await page.evaluate(() => window.dispatchEvent(new Event('online')))
+    await nextRound
+    await expect(page.getByRole('status')).toContainText('Synced')
+    await expect(page.getByLabel('Note')).toHaveValue('Being typed')
+  })
+})
+
+test.describe('categories in the form', () => {
+  test('search picks a sub-category, and the row shows it with its parent', async ({ page }) => {
+    const server = await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    const dialog = form(page, 'New transaction')
+    await page.getByLabel('Amount').fill('5')
+    await page.getByLabel('Note').fill('With category')
+
+    await page.getByRole('combobox', { name: 'Category' }).fill('sho')
+    await dialog.getByRole('button', { name: 'Shop · Groceries' }).click()
+    await expect(dialog).toContainText('Selected: Shop › Groceries')
+    await expect(page.getByRole('combobox', { name: 'Category' })).toHaveValue('')
+
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await expect(page.locator('.tx', { hasText: 'With category' })).toContainText('Shop · Groceries')
+    await sync(page)
+    await expect.poll(() => saved(server)[0]).toMatchObject({ category_id: 'sub' })
+  })
+
+  test('a category is optional, and Enter in the search picks instead of saving', async ({ page }) => {
+    await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    const dialog = form(page, 'New transaction')
+    await expect(dialog).toContainText('No category')
+    await page.getByLabel('Amount').fill('5')
+    await page.getByRole('combobox', { name: 'Category' }).fill('man')
+    await page.keyboard.press('Enter')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('Selected: Mango (Unlinked)')
+    await dialog.getByRole('button', { name: 'Clear' }).click()
+    await expect(dialog).toContainText('No category')
+  })
+
+  test('Create makes an Unlinked category and sends it', async ({ page }) => {
+    const server = await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    const dialog = form(page, 'New transaction')
+    await page.getByLabel('Amount').fill('5')
+    await page.getByRole('combobox', { name: 'Category' }).fill('Shell')
+    await dialog.getByRole('button', { name: '+ Create "Shell"' }).click()
+    await expect(dialog).toContainText('Selected: Shell (Unlinked)')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await sync(page)
+    await expect.poll(() => saved(server, 'categories')[0]).toMatchObject({ name: 'Shell', level: 'SUB', parent_id: null, kind: 'EXPENSE' })
+    await expect.poll(() => saved(server)[0]?.category_id).toBe(saved(server, 'categories')[0]?.id)
+  })
+
+  test('an existing name offers no Create, and kinds follow the type', async ({ page }) => {
+    await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    const dialog = form(page, 'New transaction')
+    await page.getByRole('combobox', { name: 'Category' }).fill('mango')
+    await expect(dialog.getByRole('button', { name: /Create/ })).toHaveCount(0)
+
+    await page.getByRole('combobox', { name: 'Category' }).fill('sal')
+    await expect(dialog.getByRole('button', { name: 'Salary' })).toHaveCount(0)
+    await page.getByRole('radio', { name: 'Income' }).click()
+    await expect(dialog.getByRole('button', { name: 'Salary' })).toBeVisible()
+  })
+
+  test('a quick chip selects and deselects, and can stay out of the search', async ({ page }) => {
+    await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    const dialog = form(page, 'New transaction')
+    const chips = dialog.getByRole('group', { name: 'Quick picks' })
+    await chips.getByRole('button', { name: 'Shop' }).click()
+    await expect(dialog).toContainText('Selected: Shop › Groceries')
+    await chips.getByRole('button', { name: 'Shop' }).click()
+    await expect(dialog).toContainText('No category')
+    await page.getByRole('combobox', { name: 'Category' }).fill('shop')
+    await expect(dialog.getByRole('button', { name: 'Shop · Groceries' })).toBeVisible()
+    await page.keyboard.press('Escape') // clears the search, the form stays
+    await expect(page.getByRole('combobox', { name: 'Category' })).toHaveValue('')
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.getByRole('dialog', { name: 'Discard changes?' }).getByRole('button', { name: 'Discard' }).click()
+
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await page.getByLabel('Show quick picks in autocomplete').uncheck()
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    await page.getByRole('combobox', { name: 'Category' }).fill('shop')
+    await expect(form(page, 'New transaction').getByRole('button', { name: 'Shop · Groceries' })).toHaveCount(0)
+  })
+
+  test('an account without any categories cannot create one, so the phone can still seed', async ({ page }) => {
+    await openWallet(page, { wallets: [wallet], transactions: [makeTx('nov', at(2026, 11, 5), 1000)] })
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    await page.getByRole('combobox', { name: 'Category' }).fill('Anything')
+    await expect(form(page, 'New transaction').getByRole('button', { name: /Create/ })).toHaveCount(0)
+  })
+})
+
+test.describe('deleting and Undo', () => {
+  test('delete is immediate, and Undo stays after a sync', async ({ page }) => {
+    const server = await openWallet(page, formRows)
+    const row = page.locator('.tx', { hasText: 'Note oct' })
+    await (await openRow(page, /Note oct/)).getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(row).toHaveCount(0)
+    await expect(page.locator('.pane-balance')).toContainText('990,00 RSD')
+
+    // The deletion reaches the server before the user changes their mind.
+    await sync(page)
+    await expect.poll(() => saved(server).at(-1)?.deleted_at).toBeGreaterThan(0)
+    await expect(page.getByRole('status')).not.toContainText('unsent')
+
+    await page.getByRole('alert').getByRole('button', { name: 'Undo' }).click()
+    await expect(row).toBeVisible()
+    await expect(page.locator('.pane-balance')).toContainText('970,00 RSD')
+    await expect(page.getByRole('alert')).toHaveCount(0)
+
+    await sync(page)
+    await expect.poll(() => saved(server).at(-1)).toMatchObject({ id: 'oct', deleted_at: null })
+    await expect(page.getByRole('status')).not.toContainText('unsent')
+    await sync(page)
+    await expect(row).toBeVisible()
+    await page.reload()
+    await page.getByRole('button', { name: /Note oct|Test wallet/ }).first().waitFor()
+    await expect(row).toBeVisible()
+  })
+
+  test('deleting the checker row removes the checker, and Undo returns it', async ({ page }) => {
+    await openWallet(page, formRows)
+    await (await openRow(page, /Note oct/)).getByRole('button', { name: 'Set checker' }).click()
+    await expect(page.locator('.tx.checker')).toContainText('Note oct')
+    await (await openRow(page, /Note oct/)).getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Go to checker' })).toBeDisabled()
+    await page.getByRole('alert').getByRole('button', { name: 'Undo' }).click()
+    await expect(page.locator('.tx.checker')).toContainText('Note oct')
+    await expect(page.getByRole('button', { name: 'Go to checker' })).toBeEnabled()
+  })
+
+  test('Undo goes away on its own', async ({ page }) => {
+    await openWallet(page, formRows)
+    await (await openRow(page, /Note oct/)).getByRole('button', { name: 'Delete', exact: true }).click()
+    const alert = page.getByRole('alert')
+    await expect(alert).toBeVisible()
+    await expect(alert).toHaveCount(0, { timeout: 10_000 })
+    await expect(page.locator('.tx', { hasText: 'Note oct' })).toHaveCount(0)
+  })
+})
+
+/** A real 300×200 picture, half red and half blue. */
+const testPng = (page: Page) => page.evaluate(() => new Promise<number[]>((resolve) => {
+  const canvas = document.createElement('canvas')
+  canvas.width = 300
+  canvas.height = 200
+  const context = canvas.getContext('2d')!
+  context.fillStyle = 'red'
+  context.fillRect(0, 0, 150, 200)
+  context.fillStyle = 'blue'
+  context.fillRect(150, 0, 150, 200)
+  canvas.toBlob(async (blob) => resolve([...new Uint8Array(await blob!.arrayBuffer())]), 'image/png')
+}))
+
+test.describe('wallet form', () => {
+  test.use({ viewport: { width: 1400, height: 900 } })
+
+  async function newWallet(page: Page, rows: Record<string, unknown[]> = formRows) {
+    const server = await fakeSupabase(page, rows)
+    await signedIn(page)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'New wallet' }).click()
+    return server
+  }
+
+  test('creates a wallet and opens it', async ({ page }) => {
+    const server = await newWallet(page)
+    const dialog = form(page, 'New wallet')
+    await expect(page.getByLabel('Name')).toBeFocused()
+
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('Name is required')
+
+    await page.getByLabel('Name').fill('  Fresh wallet ')
+    await page.getByLabel('Type').selectOption('CASH')
+    await dialog.getByRole('button', { name: 'Change' }).click()
+    await page.getByLabel('Search currencies').fill('franc')
+    await page.getByRole('button', { name: /^CHF/ }).click()
+    await page.getByLabel('Opening balance').fill('-5,50')
+    await dialog.getByRole('radio', { name: 'Color #e53935' }).click()
+    await dialog.getByRole('button', { name: 'Save' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Fresh wallet' })).toBeVisible()
+    await expect(page.locator('.pane-balance')).toContainText('−5,50 CHF')
+    await expect(page.locator('.wallet-name').last()).toHaveText('Fresh wallet')
+    await sync(page)
+    await expect.poll(() => saved(server, 'wallets')[0]).toMatchObject({
+      name: 'Fresh wallet', wallet_type: 'CASH', currency_code: 'CHF', opening_balance_minor: -550, color: -1754827, sort_order: 3, is_archived: false, deleted_at: null,
+    })
+  })
+
+  test('the currency is locked once there are transactions', async ({ page }) => {
+    await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'Edit wallet' }).click()
+    const dialog = form(page, 'Edit wallet')
+    await expect(dialog).toContainText('Locked: the wallet already has transactions')
+    await expect(dialog.getByRole('button', { name: 'Change' })).toHaveCount(0)
+    await expect(page.getByLabel('Name')).toHaveValue('Test wallet')
+    await expect(page.getByLabel('Opening balance')).toHaveValue('1000,00')
+  })
+
+  test('an edit changes the balance and keeps the order', async ({ page }) => {
+    const server = await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'Edit wallet' }).click()
+    await page.getByLabel('Name').fill('Renamed')
+    await page.getByLabel('Opening balance').fill('2000')
+    await form(page, 'Edit wallet').getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByRole('heading', { name: 'Renamed' })).toBeVisible()
+    await expect(page.locator('.pane-balance')).toContainText('1.970,00 RSD')
+    await sync(page)
+    await expect.poll(() => saved(server, 'wallets')[0]).toMatchObject({ id: 'w1', name: 'Renamed', sort_order: 0, opening_balance_minor: 200000 })
+  })
+
+  test('an image becomes a 256×256 WebP named by its hash, and is sent before the wallet', async ({ page }) => {
+    const server = await newWallet(page)
+    const dialog = form(page, 'New wallet')
+    await page.getByLabel('Name').fill('With image')
+    const png = await testPng(page)
+    await page.getByLabel('Wallet image file').setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: Buffer.from(png) })
+    await expect(dialog.locator('img.avatar')).toBeVisible()
+
+    // Leaving the form must leave nothing: the image is not stored until Save.
+    const stored = () => page.evaluate(() => new Promise<{ hash: string; size: [number, number]; type: string }[]>((resolve) => {
+      const open = indexedDB.open('saldo')
+      open.onsuccess = () => {
+        const request = open.result.transaction('images').objectStore('images').getAll()
+        request.onsuccess = async () => resolve(await Promise.all(request.result.map(async (row: { hash: string; blob: Blob }) => {
+          const bitmap = await createImageBitmap(row.blob)
+          return { hash: row.hash, size: [bitmap.width, bitmap.height] as [number, number], type: row.blob.type }
+        })))
+      }
+    }))
+    expect(await stored()).toEqual([])
+
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByRole('heading', { name: 'With image' })).toBeVisible()
+    await expect(page.locator('.pane-header img.avatar')).toBeVisible()
+    const [image] = await stored()
+    expect(image!.size).toEqual([256, 256])
+    expect(image!.type).toBe('image/webp')
+    expect(image!.hash).toMatch(/^[0-9a-f]{64}$/)
+
+    await sync(page)
+    await expect.poll(() => server.uploads.length).toBe(1)
+    expect(server.uploads[0]!.path).toBe(`wallet-images/${UID}/${image!.hash}.webp`)
+    await expect.poll(() => saved(server, 'wallets')[0]).toMatchObject({ image_hash: image!.hash })
+    expect(saved(server, 'images')[0]).toMatchObject({ hash: image!.hash, remote_path: `${UID}/${image!.hash}.webp`, deleted_at: null })
+    const order = server.upserts.map((u) => u.table)
+    expect(order.indexOf('images')).toBeLessThan(order.indexOf('wallets'))
+  })
+
+  test('abandoning a picked image stores nothing, and a bad file gives a message', async ({ page }) => {
+    await newWallet(page)
+    const dialog = form(page, 'New wallet')
+    await page.getByLabel('Wallet image file').setInputFiles({ name: 'bad.png', mimeType: 'image/png', buffer: Buffer.from('not a picture') })
+    await expect(dialog.getByRole('alert')).toHaveText('This image could not be read.')
+
+    const png = await testPng(page)
+    await page.getByLabel('Wallet image file').setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: Buffer.from(png) })
+    await expect(dialog.locator('img.avatar')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Remove image' }).click()
+    await expect(dialog.locator('img.avatar')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await page.getByRole('dialog', { name: 'Discard changes?' }).getByRole('button', { name: 'Discard' }).click()
+    await expect(page.getByRole('status')).not.toContainText('unsent')
+  })
+
+  test('deleting a wallet asks first, then removes it with its transactions', async ({ page }) => {
+    const server = await openWallet(page, formRows)
+    await page.getByRole('button', { name: 'Delete wallet' }).click()
+    const confirm = page.getByRole('dialog', { name: 'Delete wallet?' })
+    await expect(confirm).toContainText('Delete "Test wallet" and 2 transactions? This cannot be undone.')
+    await confirm.getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByRole('heading', { name: 'Test wallet' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Delete wallet' }).click()
+    await confirm.getByRole('button', { name: 'Delete' }).click()
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByRole('button', { name: /Test wallet/ })).toHaveCount(0)
+
+    await sync(page)
+    await expect.poll(() => saved(server, 'wallets')[0]?.deleted_at).toBeGreaterThan(0)
+    await expect.poll(() => saved(server).map((r) => [r.id, typeof r.deleted_at]).sort()).toEqual([['nov', 'number'], ['oct', 'number']])
+  })
+})
+
+test.describe('forms on a phone', () => {
+  test.use({ viewport: { width: 360, height: 740 } })
+
+  test('fill the screen without sideways scrolling', async ({ page }) => {
+    await openWallet(page, formRows, { width: 360, height: 740 })
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    const overflow = () => page.evaluate(() => {
+      const panel = document.querySelector('.modal.wide')!
+      return Math.max(document.documentElement.scrollWidth - document.documentElement.clientWidth, panel.scrollWidth - panel.clientWidth)
+    })
+    await expect(page.getByLabel('Amount')).toBeVisible()
+    expect(await overflow()).toBe(0)
+    const box = await page.locator('.modal.wide').boundingBox()
+    expect(box!.width).toBe(360)
+    expect(box!.height).toBe(740)
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Edit wallet' }).click()
+    await expect(page.getByLabel('Name')).toBeVisible()
+    expect(await overflow()).toBe(0)
+  })
+})
+
 test('screens for a visual check', async ({ page }) => {
   const dir = process.env.SCREENSHOT_DIR
   test.skip(!dir, 'only on request')
@@ -596,6 +1116,16 @@ test('screens for a visual check', async ({ page }) => {
   await page.getByLabel('Theme').selectOption('LIGHT')
   await page.keyboard.press('Escape')
   await page.screenshot({ path: `${dir}/light-phone.png` })
-  await page.getByRole('button', { name: 'Back to wallets' }).click()
-  await page.screenshot({ path: `${dir}/light-phone-list.png` })
+  await page.getByRole('button', { name: 'New transaction' }).click()
+  await page.getByLabel('Amount').fill('1.459,96')
+  await page.screenshot({ path: `${dir}/form-phone.png` })
+  await page.setViewportSize({ width: 1400, height: 900 })
+  await page.getByRole('combobox', { name: 'Category' }).fill('sho')
+  await page.getByRole('button', { name: /Foreign currency/ }).click()
+  await page.screenshot({ path: `${dir}/form-wide.png` })
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Discard' }).click()
+  await page.getByRole('button', { name: 'Edit wallet' }).click()
+  await page.getByLabel('Name').waitFor()
+  await page.screenshot({ path: `${dir}/wallet-form-wide.png` })
 })

@@ -1,7 +1,6 @@
+import { COMMON_CURRENCIES } from '../core/currencies'
 import type { Category, Transaction, Wallet } from '../db/types'
 import { computeBalances } from './balance'
-
-const COMMON_CURRENCIES = ['RSD', 'EUR', 'USD', 'CHF', 'GBP', 'MKD', 'BAM', 'HUF']
 
 export interface WalletSummary {
   wallet: Wallet

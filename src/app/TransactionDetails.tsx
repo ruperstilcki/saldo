@@ -1,13 +1,13 @@
-import { useState } from 'react'
+import { currencyName } from '../core/currencies'
 import { formatDate, formatTime } from '../core/dates'
 import { formatMoney, formatSigned } from '../core/money'
-import { updateTransactionNote } from '../data/transactions'
 import { setChecker } from '../data/wallets'
 import { db } from '../db/db'
 import type { Wallet } from '../db/types'
 import { isIncoming, type TransactionRow } from '../domain/rows'
 import { argbToHex } from '../ui/monthTints'
 import { Modal } from './Common'
+import { duplicateTransactionPath, editTransactionPath, navigate } from './router'
 import { syncManager } from './services'
 import { CategoryChip } from './WalletPane'
 
@@ -18,26 +18,20 @@ const SOURCE_LABELS: Record<string, string> = {
   IMPORT: 'Imported',
 }
 
-function currencyName(code: string): string {
-  try {
-    return new Intl.DisplayNames(['en'], { type: 'currency' }).of(code) ?? code
-  } catch {
-    return code
-  }
-}
-
 interface Props {
   row: TransactionRow
   wallet: Wallet
   isChecker: boolean
   onClose: () => void
+  onDelete: (id: string) => void
 }
 
-export function TransactionDetails({ row, wallet, isChecker, onClose }: Props) {
-  const [editing, setEditing] = useState(false)
+export function TransactionDetails({ row, wallet, isChecker, onClose, onDelete }: Props) {
   const incoming = isIncoming(row.kind)
-
-  if (editing) return <NoteDialog row={row} onClose={onClose} />
+  const go = (path: string) => {
+    onClose()
+    navigate(path)
+  }
 
   return (
     <Modal label="Transaction details" onClose={onClose}>
@@ -59,7 +53,8 @@ export function TransactionDetails({ row, wallet, isChecker, onClose }: Props) {
       )}
       {row.note && <p className="details-note">{row.note}</p>}
       <div className="actions">
-        <button onClick={() => setEditing(true)}>Edit note</button>
+        <button onClick={() => go(editTransactionPath(wallet.id, row.id))}>Edit</button>
+        <button onClick={() => go(duplicateTransactionPath(wallet.id, row.id))}>Duplicate</button>
         <button
           onClick={async () => {
             await setChecker(db, wallet.id, isChecker ? null : row.id)
@@ -69,26 +64,8 @@ export function TransactionDetails({ row, wallet, isChecker, onClose }: Props) {
         >
           {isChecker ? 'Remove checker' : 'Set checker'}
         </button>
+        <button className="danger" onClick={() => onDelete(row.id)}>Delete</button>
         <button onClick={onClose}>Close</button>
-      </div>
-    </Modal>
-  )
-}
-
-function NoteDialog({ row, onClose }: { row: TransactionRow; onClose: () => void }) {
-  const [note, setNote] = useState(row.note ?? '')
-  const save = async () => {
-    await updateTransactionNote(db, row.id, note)
-    syncManager.notifyLocalChange()
-    onClose()
-  }
-  return (
-    <Modal label="Edit note" onClose={onClose}>
-      <h2>Edit note</h2>
-      <textarea aria-label="Note" rows={5} value={note} onChange={(e) => setNote(e.target.value)} />
-      <div className="actions">
-        <button onClick={onClose}>Cancel</button>
-        <button className="primary" onClick={() => void save()}>Save</button>
       </div>
     </Modal>
   )

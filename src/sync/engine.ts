@@ -20,13 +20,47 @@ const cursorKey = (table: string) => `sync_cursor_${table}`
  * One sync round, same behavior as Android's SyncEngine.kt: push DIRTY rows, then pull what changed
  * on the server. A row that is DIRTY locally is not overwritten: it wins and goes out next round.
  */
-export async function runRound(db: SaldoDb, remote: RemoteApi, uid: string): Promise<SyncReport> {
+export async function runRound(db: SaldoDb, remote: RemoteApi, uid: string, now = Date.now()): Promise<SyncReport> {
   let pushed = await pushImages(db, remote, uid)
   for (const name of PUSH_ORDER) pushed += await pushTable(db, remote, TABLES[name], uid)
 
   let pulled = 0
   for (const name of PULL_ORDER) pulled += await pullTable(db, remote, TABLES[name], uid)
+
+  // Only here, after a complete pull: this browser now knows every wallet that could use an image.
+  await downloadMissingImages(db, remote)
+  if ((await markOrphanImages(db, now)) > 0) pushed += await pushImages(db, remote, uid)
   return { pushed, pulled }
+}
+
+/** Long enough for the phone to finish sending an image and the wallet that uses it, in two steps. */
+export const ORPHAN_GRACE_MS = 24 * 60 * 60 * 1000
+
+/** An image no wallet uses is deleted here and on the server, unless it only just arrived. */
+export async function markOrphanImages(db: SaldoDb, now: number): Promise<number> {
+  return db.transaction('rw', db.images, db.wallets, async () => {
+    const wallets = await db.wallets.toArray()
+    const used = new Set(wallets.filter((w) => w.deletedAt === null && w.imageHash).map((w) => w.imageHash))
+    const images = await db.images.toArray()
+    const orphans = images.filter(
+      (image) => image.deletedAt === null && image.syncState !== 'DIRTY' && !used.has(image.hash) && now - image.updatedAt >= ORPHAN_GRACE_MS,
+    )
+    for (const image of orphans) {
+      const time = Math.max(now, image.updatedAt + 1)
+      await db.images.put({ ...image, blob: undefined, deletedAt: time, updatedAt: time, syncState: 'DIRTY' })
+    }
+    return orphans.length
+  })
+}
+
+/** A download that failed earlier gets another try, because the cursor will not bring that row again. */
+async function downloadMissingImages(db: SaldoDb, remote: RemoteApi) {
+  const images = await db.images.toArray()
+  for (const image of images) {
+    if (image.deletedAt !== null || image.blob || !image.remotePath) continue
+    const blob = await remote.downloadImage(image.remotePath).catch(() => undefined)
+    if (blob) await db.images.update(image.hash, { blob })
+  }
 }
 
 async function pushTable(db: SaldoDb, remote: RemoteApi, spec: TableSpec, uid: string): Promise<number> {

@@ -40,6 +40,14 @@ export function SettingsDialog({ email, onSignOut, onClose }: { email: string | 
       />
       <Choice label="Months" value={settings.monthsDefault} options={GROUP_OPTIONS} onChange={(monthsDefault) => updateSettings({ monthsDefault })} />
       <Choice label="Years" value={settings.yearsDefault} options={GROUP_OPTIONS} onChange={(yearsDefault) => updateSettings({ yearsDefault })} />
+      <label className="field">
+        <span>Show quick picks in autocomplete</span>
+        <input
+          type="checkbox"
+          checked={settings.showQuickPicksInAutocomplete}
+          onChange={(e) => updateSettings({ showQuickPicksInAutocomplete: e.target.checked })}
+        />
+      </label>
       <p className="settings-account">
         {email && <strong>{email}</strong>}
         <span className="muted">{syncText}</span>

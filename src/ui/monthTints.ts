@@ -41,6 +41,9 @@ export function monthRowColor(month: number, strength: MonthTintStrength, dark: 
 /** A stored color is a signed 32-bit ARGB int, as Android keeps it. */
 export const argbToHex = (color: number) => '#' + ((color >>> 0) & 0xffffff).toString(16).padStart(6, '0')
 
+/** And back: "#1E5BB8" -> the signed int that Android stores. */
+export const hexToArgb = (hex: string) => (0xff000000 | parseInt(hex.slice(1), 16)) | 0
+
 function luminance(hex: string): number {
   const [r, g, b] = channels(hex).map((value) => {
     const c = value / 255

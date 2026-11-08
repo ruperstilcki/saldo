@@ -101,7 +101,7 @@ Lokalno svaki red ima `syncState` (`CLEAN` ili `DIRTY`) i `updatedAt`. Svaka lok
 
 **Kada se pokreće:** pri otvaranju i povratku na tab (`visibilitychange`), 5 sekundi posle poslednje izmene, odmah kad tab ode u pozadinu ili pre odjave ako ima neposlatih izmena, ručno preko dugmeta, i na događaj `online`. Tokom kruga drugi krug ne sme da krene (lock, i između tabova: Web Locks API).
 
-**Slike:** privatni bucket `wallet-images`, putanja `<user_id>/<sha256>.webp`. Čitanje preko `download` ili kratkotrajnih potpisanih URL-ova, keširano lokalno. Upload pretvara sliku u kvadrat 256×256 WebP, ime je sha256 sadržaja. Sliku koju više ne koristi nijedan wallet soft-obriši i ukloni iz bucket-a, ali tek posle uspešnog pull-a, da se ne obriše slika wallet-a koji još nije preuzet.
+**Slike:** privatni bucket `wallet-images`, putanja `<user_id>/<sha256>.webp`. Čitanje preko `download` ili kratkotrajnih potpisanih URL-ova, keširano lokalno. Upload pretvara sliku u kvadrat 256×256 WebP, ime je sha256 sadržaja. Slika ulazi u bazu tek pri Save forme. Sliku koju više ne koristi nijedan wallet soft-obriši i ukloni iz bucket-a, ali tek posle uspešnog pull-a i tek kad je 24 sata bez izmene, jer telefon šalje sliku i wallet u dva koraka, pa slika stigne malo pre wallet-a koji je koristi.
 
 **Pravilo za `remote_path`:** obrisana slika dobija `remote_path = null`. Izmenjena slika koja nije obrisana uvek se šalje u bucket (upsert), bez oslanjanja na `remote_path`, jer stari redovi mogu da imaju putanju bez fajla. Slika koja ne može da se preuzme ne prekida sync; wallet tada prikazuje inicijale.
 
@@ -119,7 +119,7 @@ Isti tokovi kao na telefonu (`SPEC.md` §3), ali iskoristi širinu ekrana. Na te
 - **Wallets:** kartica Total po valuti (valute se nikad ne sabiraju međusobno), potrošnja u ovom mesecu, kartice sa slikom ili inicijalima, stanjem i poslednjom transakcijom. Prevlačenje cele kartice menja redosled: mišem odmah, prstom posle kratkog držanja, da običan prelaz prstom skroluje listu. Arhivirani su u posebnom prikazu.
 - **Wallet (tabela):** kolone Date, Note, Amount. Header godine, zatim sticky header meseca (izlaz, ulaz, stanje na kraju meseca). Skupljanje i širenje meseci i godina. Klik na red otvara detalje sa Edit, Duplicate, Set/Remove checker, Delete + Undo.
 - **Checker:** jedan po wallet-u (`wallets.checker_transaction_id`). Kružić i okvir oko reda; "Go to checker" raširi mesec i postavi red na sredinu ekrana. Isti je kao na telefonu.
-- **Forma transakcije:** Expense/Income, iznos, datum i vreme, kategorija (autocomplete, quick chipovi, `Create "…"`), beleška, opciono strana valuta.
+- **Forma transakcije:** Expense/Income (izmena ne pretvara transfer u trošak ako smer ostaje isti), iznos, datum `dd.MM.yyyy` i vreme `HH:mm` kao tekst, jer bi ugrađena polja pregledača pratila jezik uređaja, uz dugme za kalendar, kategorija (autocomplete, quick chipovi, `Create "…"`), beleška, opciono strana valuta.
 - **Forma wallet-a:** naziv (obavezan), tip, valuta (lista sa pretragom; zaključana kad wallet ima transakcije), početno stanje, boja, slika, beleška.
 - **Pretraga i filteri:** tekst, period, tip, iznos, kategorija; na dnu broj stavki, ulaz, izlaz i neto.
 - **Statistics:** po jednoj valuti; mesečna potrošnja sa prosekom, po kategorijama sa podkategorijama, ulaz i izlaz, top 10, klik vodi na filtrirane transakcije.
@@ -197,7 +197,8 @@ Prenesi logiku u TypeScript i prenesi i testove iz `android/app/src/test/`, sa i
 ## 10. Status
 
 - **W1:** završen 2026-11-08. Test iz §9 je prošao na pravom telefonu i serveru, na `https://saldo-49s.pages.dev`.
-- **W2:** kod je gotov 2026-11-08; poređenje izgleda i zbirova sa telefonom radi korisnik. Tema, jačina boja meseci i podrazumevano skupljanje su već u Settings, jer su potrebni za tabelu. Dok W3 ne donese pravu formu, red ima samo Edit note i Set/Remove checker.
+- **W2:** završen 2026-11-08. Korisnik je potvrdio da se zbirovi slažu sa telefonom i da prevlačenje radi. Tema, jačina boja meseci i podrazumevano skupljanje su već u Settings, jer su potrebni za tabelu.
+- **W3:** kod je gotov 2026-11-08; provera izmena u oba smera i Undo-a posle sync-a na pravom telefonu je na korisniku. Opcija "Show quick picks in autocomplete" je već u Settings, jer je potrebna formi.
 
 ## 11. Backup
 

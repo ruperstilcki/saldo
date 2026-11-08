@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { argbToHex, contrast, monthHeaderColor, monthRowColor, THEME_COLORS, type MonthTintStrength } from './monthTints'
+import { argbToHex, contrast, hexToArgb, monthHeaderColor, monthRowColor, THEME_COLORS, type MonthTintStrength } from './monthTints'
 
 const STRENGTHS: MonthTintStrength[] = ['NORMAL', 'SUBTLE', 'OFF']
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
@@ -48,5 +48,9 @@ describe('stored colors', () => {
     expect(argbToHex(-14787912)).toBe('#1e5ab8')
     expect(argbToHex(-16777216)).toBe('#000000')
     expect(argbToHex(-1)).toBe('#ffffff')
+    expect(hexToArgb('#000000')).toBe(-16777216)
+    expect(hexToArgb('#ffffff')).toBe(-1)
+    expect(argbToHex(hexToArgb('#1E5BB8'))).toBe('#1e5bb8')
+    expect(hexToArgb('#1e5ab8')).toBe(-14787912)
   })
 })

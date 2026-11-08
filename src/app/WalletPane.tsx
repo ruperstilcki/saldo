@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { formatDate, formatTime, monthOf, monthTitle, yearMonthOf } from '../core/dates'
 import { formatMoney, formatSigned } from '../core/money'
-import { setArchived } from '../data/wallets'
+import { deleteWallet, setArchived } from '../data/wallets'
 import { db } from '../db/db'
 import type { Category, Transaction, Wallet } from '../db/types'
 import { computeBalances } from '../domain/balance'
@@ -10,15 +10,21 @@ import { noteForTable } from '../domain/noteDisplay'
 import { buildRows, isIncoming, type TransactionRow } from '../domain/rows'
 import { buildTable, defaultCollapsed, monthKey, yearKey, type TableItem } from '../domain/tableModel'
 import { argbToHex, monthHeaderColor, monthRowColor } from '../ui/monthTints'
-import { WalletAvatar } from './Common'
-import { navigate } from './router'
+import { ConfirmDialog, WalletAvatar } from './Common'
+import { editWalletPath, navigate, newTransactionPath } from './router'
 import { syncManager } from './services'
 import { useDarkTheme, useSettings } from './settings'
 import { TransactionDetails } from './TransactionDetails'
 
 const NO_TRANSACTIONS: Transaction[] = []
 
-export function WalletPane({ walletId, categories }: { walletId: string; categories: Category[] }) {
+interface Props {
+  walletId: string
+  categories: Category[]
+  onDeleteTransaction: (id: string) => void
+}
+
+export function WalletPane({ walletId, categories, onDeleteTransaction }: Props) {
   const wallet = useLiveQuery(() => db.wallets.get(walletId), [walletId], null as Wallet | null | undefined)
   const transactions = useLiveQuery(() => db.transactions.where('walletId').equals(walletId).toArray(), [walletId], NO_TRANSACTIONS)
   const settings = useSettings()
@@ -29,6 +35,7 @@ export function WalletPane({ walletId, categories }: { walletId: string; categor
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [flashId, setFlashId] = useState<string | null>(null)
   const [pendingScroll, setPendingScroll] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
 
   const rows = useMemo(() => buildRows(transactions, categories), [transactions, categories])
@@ -84,7 +91,9 @@ export function WalletPane({ walletId, categories }: { walletId: string; categor
           <p className="pane-balance">{formatMoney(balance)} {wallet.currencyCode}</p>
         </div>
         <span className="spacer" />
+        <button className="primary" onClick={() => navigate(newTransactionPath(wallet.id))}>New transaction</button>
         <button disabled={!checkerRow} onClick={goToChecker}>Go to checker</button>
+        <button onClick={() => navigate(editWalletPath(wallet.id))}>Edit wallet</button>
         <button
           onClick={async () => {
             await setArchived(db, wallet.id, !wallet.isArchived)
@@ -94,10 +103,11 @@ export function WalletPane({ walletId, categories }: { walletId: string; categor
         >
           {wallet.isArchived ? 'Unarchive' : 'Archive'}
         </button>
+        <button className="danger" onClick={() => setConfirmDelete(true)}>Delete wallet</button>
       </header>
 
       {rows.length === 0 && transactions !== NO_TRANSACTIONS ? (
-        <p className="pane-empty muted">No transactions yet.</p>
+        <p className="pane-empty muted">No transactions yet. Use New transaction to add one.</p>
       ) : (
         <>
           <div className="columns" aria-hidden="true">
@@ -139,6 +149,23 @@ export function WalletPane({ walletId, categories }: { walletId: string; categor
           wallet={wallet}
           isChecker={selected.id === checkerId}
           onClose={() => setSelectedId(null)}
+          onDelete={(id) => {
+            setSelectedId(null)
+            onDeleteTransaction(id)
+          }}
+        />
+      )}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete wallet?"
+          text={`Delete "${wallet.name}" and ${rows.length} transactions? This cannot be undone.`}
+          confirmLabel="Delete"
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={async () => {
+            await deleteWallet(db, wallet.id)
+            syncManager.notifyLocalChange()
+            navigate('/', { replace: true })
+          }}
         />
       )}
     </section>

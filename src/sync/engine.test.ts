@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SaldoDb } from '../db/db'
-import type { ImageRow, RecurringRule, Transaction } from '../db/types'
+import type { ImageRow, RecurringRule, Transaction, Wallet } from '../db/types'
 import { nextCursor, SAFETY_MS } from './cursor'
-import { PAGE, planImagePush, runRound } from './engine'
+import { markOrphanImages, ORPHAN_GRACE_MS, PAGE, planImagePush, runRound } from './engine'
 import { FakeRemote } from './fakeRemote'
 
 const UID = 'user-1'
@@ -59,7 +59,7 @@ describe('push', () => {
   it('sends tables in dependency order, with the right conflict target', async () => {
     await db.transactions.put(localTx('t1'))
     await db.images.put(localImage('h1', { blob: new Blob(['abc']) }))
-    await db.wallets.put({ id: 'w1', userId: UID, syncState: 'DIRTY', createdAt: 1, updatedAt: 1, deletedAt: null } as never)
+    await db.wallets.put({ id: 'w1', userId: UID, imageHash: 'h1', syncState: 'DIRTY', createdAt: 1, updatedAt: 1, deletedAt: null } as never)
     await runRound(db, remote, UID)
 
     expect(remote.upserts.map((u) => [u.table, u.onConflict])).toEqual([
@@ -181,6 +181,7 @@ describe('images', () => {
   })
 
   it('a changed live image is uploaded even if it already has a remote path', async () => {
+    await db.wallets.put({ id: 'w', imageHash: 'h1', deletedAt: null, updatedAt: 1, syncState: 'CLEAN' } as Wallet)
     await db.images.put(localImage('h1', { remotePath: `${UID}/h1.webp`, blob: new Blob(['abc']) }))
     await runRound(db, remote, UID)
     expect(remote.files.has(`${UID}/h1.webp`)).toBe(true)
@@ -206,5 +207,74 @@ describe('images', () => {
     const row = await db.images.get('h1')
     expect(row?.deletedAt).toBe(7)
     expect(row?.blob).toBeUndefined()
+  })
+})
+
+describe('images no wallet uses', () => {
+  const NOW = 1_000_000_000
+  const OLD = NOW - ORPHAN_GRACE_MS
+  const wallet = (imageHash: string | null, extra: Partial<Wallet> = {}) =>
+    ({ id: `w-${imageHash}`, imageHash, deletedAt: null, updatedAt: 1, syncState: 'CLEAN', ...extra }) as Wallet
+  const clean = (hash: string, updatedAt = OLD) => localImage(hash, { syncState: 'CLEAN', updatedAt, blob: new Blob(['x']), remotePath: `${UID}/${hash}.webp` })
+
+  it('are deleted, and their cached file too', async () => {
+    await db.images.put(clean('free'))
+    expect(await markOrphanImages(db, NOW)).toBe(1)
+    const row = await db.images.get('free')
+    expect(row).toMatchObject({ deletedAt: NOW, syncState: 'DIRTY' })
+    expect(row?.blob).toBeUndefined()
+  })
+
+  it('stay while any wallet uses them, even an archived one', async () => {
+    await db.images.put(clean('used'))
+    await db.wallets.put(wallet('used', { isArchived: true }))
+    expect(await markOrphanImages(db, NOW)).toBe(0)
+  })
+
+  it('are freed when the wallet that used them is deleted', async () => {
+    await db.images.put(clean('freed'))
+    await db.wallets.put(wallet('freed', { deletedAt: 5 }))
+    expect(await markOrphanImages(db, NOW)).toBe(1)
+  })
+
+  it('stay for a day after they arrive: the wallet may be on its way from the phone', async () => {
+    await db.images.put(clean('new', OLD + 1))
+    expect(await markOrphanImages(db, NOW)).toBe(0)
+    expect((await db.images.get('new'))?.deletedAt).toBeNull()
+  })
+
+  it('stay while they wait to be sent', async () => {
+    await db.images.put(localImage('pending', { updatedAt: OLD, blob: new Blob(['x']) }))
+    expect(await markOrphanImages(db, NOW)).toBe(0)
+  })
+
+  it('are removed from the server in the same round', async () => {
+    remote.files.set(`${UID}/old.webp`, new Blob(['x']))
+    await db.images.put(clean('old', 1))
+    await runRound(db, remote, UID, NOW)
+    expect(remote.files.has(`${UID}/old.webp`)).toBe(false)
+    expect(remote.tables.get('images')!.get('old')).toMatchObject({ deleted_at: NOW, remote_path: null })
+  })
+
+  it('are not touched when the pull fails', async () => {
+    await db.images.put(clean('old', 1))
+    remote.selectChanged = () => Promise.reject(new Error('offline'))
+    await expect(runRound(db, remote, UID, NOW)).rejects.toThrow()
+    expect((await db.images.get('old'))?.deletedAt).toBeNull()
+  })
+})
+
+describe('a failed image download', () => {
+  it('gets another try in the next round', async () => {
+    await db.wallets.put({ id: 'w', imageHash: 'h1', deletedAt: null, updatedAt: 1, syncState: 'CLEAN' } as Wallet)
+    remote.files.set('p.webp', new Blob(['x']))
+    remote.seed('images', { hash: 'h1', user_id: UID, remote_path: 'p.webp', byte_size: 1, created_at: 1, deleted_at: null })
+    remote.failDownloads = true
+    await runRound(db, remote, UID)
+    expect((await db.images.get('h1'))?.blob).toBeUndefined()
+
+    remote.failDownloads = false
+    await runRound(db, remote, UID)
+    expect((await db.images.get('h1'))?.blob).toBeTruthy()
   })
 })
