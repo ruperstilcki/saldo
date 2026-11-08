@@ -198,7 +198,9 @@ Prenesi logiku u TypeScript i prenesi i testove iz `android/app/src/test/`, sa i
 
 - **W1:** završen 2026-11-08. Test iz §9 je prošao na pravom telefonu i serveru, na `https://saldo-49s.pages.dev`.
 - **W2:** završen 2026-11-08. Korisnik je potvrdio da se zbirovi slažu sa telefonom i da prevlačenje radi. Tema, jačina boja meseci i podrazumevano skupljanje su već u Settings, jer su potrebni za tabelu.
-- **W3:** kod je gotov 2026-11-08; provera izmena u oba smera i Undo-a posle sync-a na pravom telefonu je na korisniku. Opcija "Show quick picks in autocomplete" je već u Settings, jer je potrebna formi.
+- **W3:** kod je gotov 2026-11-08. Provera izmena u oba smera i Undo-a posle sync-a na pravom telefonu još je na korisniku. Opcija "Show quick picks in autocomplete" je već u Settings, jer je potrebna formi.
+- **W4:** kod je gotov 2026-11-08; poređenje filtera i statistike sa telefonom je na korisniku. Grafikoni su u HTML-u, bez biblioteke. Ulaz i izlaz nemaju crvenu, jer boje ne razlikuju iznose.
+- **Testovi:** `npm test`, `npm run e2e` (lažni server u pregledaču) i `npm run test:db` (prava Postgres baza i PostgREST u Docker-u, sa pravom migracijom i izmišljenim podacima: sync između dva uređaja i izolacija naloga). Storage i pravi Android klijent nisu pokriveni ovim testovima.
 
 ## 11. Backup
 

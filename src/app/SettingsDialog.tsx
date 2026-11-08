@@ -1,8 +1,8 @@
 import type { GroupDefault } from '../domain/tableModel'
-import type { MonthTintStrength } from '../ui/monthTints'
+import { monthHeaderColor, monthRowColor, type MonthTintStrength } from '../ui/monthTints'
 import { Modal } from './Common'
 import { useSyncText } from './Home'
-import { updateSettings, useSettings, type ThemeMode } from './settings'
+import { updateSettings, useDarkTheme, useSettings, type ThemeMode } from './settings'
 
 const GROUP_OPTIONS: [GroupDefault, string][] = [
   ['EXPANDED', 'All expanded'],
@@ -23,6 +23,7 @@ function Choice<T extends string>({ label, value, options, onChange }: { label: 
 export function SettingsDialog({ email, onSignOut, onClose }: { email: string | null; onSignOut: () => void; onClose: () => void }) {
   const settings = useSettings()
   const syncText = useSyncText()
+  const dark = useDarkTheme()
   return (
     <Modal label="Settings" onClose={onClose}>
       <h2>Settings</h2>
@@ -38,6 +39,17 @@ export function SettingsDialog({ email, onSignOut, onClose }: { email: string | 
         options={[['NORMAL', 'Normal'], ['SUBTLE', 'Subtle'], ['OFF', 'Off']]}
         onChange={(monthTint) => updateSettings({ monthTint })}
       />
+      <div className="month-preview" aria-hidden="true">
+        {Array.from({ length: 12 }, (_, i) => {
+          const row = monthRowColor(i + 1, settings.monthTint, dark)
+          return (
+            <span key={i}>
+              <span style={{ backgroundColor: monthHeaderColor(i + 1, settings.monthTint, dark) }} />
+              <span style={row ? { backgroundColor: row } : undefined} />
+            </span>
+          )
+        })}
+      </div>
       <Choice label="Months" value={settings.monthsDefault} options={GROUP_OPTIONS} onChange={(monthsDefault) => updateSettings({ monthsDefault })} />
       <Choice label="Years" value={settings.yearsDefault} options={GROUP_OPTIONS} onChange={(yearsDefault) => updateSettings({ yearsDefault })} />
       <label className="field">

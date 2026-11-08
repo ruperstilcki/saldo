@@ -5,9 +5,13 @@ import { deleteTransaction, restoreTransaction } from '../data/transactions'
 import { db } from '../db/db'
 import type { Category, Transaction, Wallet } from '../db/types'
 import { spentByCurrency, summarize, totalsByCurrency } from '../domain/walletSummaries'
-import { navigate, parseRoute, usePathname } from './router'
+import { CategoriesPage } from './CategoriesPage'
+import { FeesPage } from './FeesPage'
+import { feesPath, navigate, parseRoute, searchPath, statisticsPath, useUrl } from './router'
+import { SearchPage } from './SearchPage'
 import { syncManager } from './services'
 import { SettingsDialog } from './SettingsDialog'
+import { StatisticsPage } from './StatisticsPage'
 import { TransactionForm } from './TransactionForm'
 import { WalletForm } from './WalletForm'
 import { WalletList } from './WalletList'
@@ -24,6 +28,13 @@ export function useSyncText() {
 }
 
 const UNDO_MS = 8_000
+const NAV: [string, string, string][] = [
+  ['statistics', 'Statistics', statisticsPath()],
+  ['search', 'Search', searchPath()],
+  ['categories', 'Categories', '/categories'],
+  ['fees', 'Monthly fees', feesPath()],
+]
+const FULL_PAGES = new Set(['statistics', 'search', 'categories', 'fees'])
 
 interface DeletedTransaction {
   id: string
@@ -35,7 +46,8 @@ const NO_TRANSACTIONS: Transaction[] = []
 const NO_CATEGORIES: Category[] = []
 
 export function Home({ email, onSignOut }: { email: string | null; onSignOut: () => void }) {
-  const route = parseRoute(usePathname())
+  const url = useUrl()
+  const route = parseRoute(url)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [deleted, setDeleted] = useState<DeletedTransaction | null>(null)
   const syncText = useSyncText()
@@ -83,28 +95,41 @@ export function Home({ email, onSignOut }: { email: string | null; onSignOut: ()
     <div className={selectedId ? 'app wallet-open' : 'app'}>
       <header className="bar">
         <button className="brand" onClick={() => navigate('/')}>Saldo</button>
+        <nav className="main-nav" aria-label="Main">
+          {NAV.map(([page, label, path]) => (
+            <button key={page} aria-current={route.page === page ? 'page' : undefined} onClick={() => navigate(path)}>{label}</button>
+          ))}
+        </nav>
         <span className="status" role="status">{syncText}</span>
         <span className="spacer" />
         <button onClick={() => void syncManager.requestRound()}>Sync now</button>
         <button onClick={() => setSettingsOpen(true)}>Settings</button>
       </header>
-      {noCategories && <p className="notice">No categories yet. Open Saldo on your phone once to create them.</p>}
-      <div className="layout">
-        <WalletList
-          showArchived={route.page === 'archived'}
-          active={active}
-          archived={archived}
-          totals={totals}
-          spent={spent}
-          selectedId={selectedId}
-          loaded={wallets !== NO_WALLETS}
-        />
-        {selectedId ? (
-          <WalletPane key={selectedId} walletId={selectedId} categories={categories} onDeleteTransaction={(id) => void onDeleteTransaction(id)} />
-        ) : (
-          <div className="pane-empty muted">Choose a wallet to see its transactions.</div>
-        )}
-      </div>
+      {noCategories && route.page !== 'categories' && <p className="notice">No categories yet. Open Saldo on your phone once to create them.</p>}
+      {route.page === 'statistics' && <StatisticsPage key={url} walletId={route.walletId} wallets={wallets} transactions={transactions} categories={categories} />}
+      {route.page === 'search' && (
+        <SearchPage key={url} params={route.params} wallets={wallets} transactions={transactions} categories={categories} onDeleteTransaction={(id) => void onDeleteTransaction(id)} />
+      )}
+      {route.page === 'categories' && <CategoriesPage categories={categories} transactions={transactions} canCreate={!!categoryRows} />}
+      {route.page === 'fees' && <FeesPage key={url} walletId={route.walletId} wallets={wallets} categories={categories} />}
+      {!FULL_PAGES.has(route.page) && (
+        <div className="layout">
+          <WalletList
+            showArchived={route.page === 'archived'}
+            active={active}
+            archived={archived}
+            totals={totals}
+            spent={spent}
+            selectedId={selectedId}
+            loaded={wallets !== NO_WALLETS}
+          />
+          {selectedId ? (
+            <WalletPane key={selectedId} walletId={selectedId} categories={categories} onDeleteTransaction={(id) => void onDeleteTransaction(id)} />
+          ) : (
+            <div className="pane-empty muted">Choose a wallet to see its transactions.</div>
+          )}
+        </div>
+      )}
       {route.page === 'newWallet' && <WalletForm walletId={null} />}
       {form?.type === 'editWallet' && <WalletForm key={selectedId} walletId={selectedId} />}
       {formWallet && form && form.type !== 'editWallet' && (

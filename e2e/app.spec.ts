@@ -82,6 +82,11 @@ async function signOut(page: Page) {
   await page.getByRole('button', { name: 'Sign out' }).click()
 }
 
+async function walletAction(page: Page, name: string) {
+  await page.getByRole('button', { name: 'More' }).click()
+  await page.getByRole('button', { name, exact: true }).click()
+}
+
 const cspProblems = (page: Page) => {
   const problems: string[] = []
   page.on('console', (m) => {
@@ -985,7 +990,7 @@ test.describe('wallet form', () => {
 
   test('the currency is locked once there are transactions', async ({ page }) => {
     await openWallet(page, formRows)
-    await page.getByRole('button', { name: 'Edit wallet' }).click()
+    await walletAction(page, 'Edit wallet')
     const dialog = form(page, 'Edit wallet')
     await expect(dialog).toContainText('Locked: the wallet already has transactions')
     await expect(dialog.getByRole('button', { name: 'Change' })).toHaveCount(0)
@@ -995,7 +1000,7 @@ test.describe('wallet form', () => {
 
   test('an edit changes the balance and keeps the order', async ({ page }) => {
     const server = await openWallet(page, formRows)
-    await page.getByRole('button', { name: 'Edit wallet' }).click()
+    await walletAction(page, 'Edit wallet')
     await page.getByLabel('Name').fill('Renamed')
     await page.getByLabel('Opening balance').fill('2000')
     await form(page, 'Edit wallet').getByRole('button', { name: 'Save' }).click()
@@ -1061,13 +1066,13 @@ test.describe('wallet form', () => {
 
   test('deleting a wallet asks first, then removes it with its transactions', async ({ page }) => {
     const server = await openWallet(page, formRows)
-    await page.getByRole('button', { name: 'Delete wallet' }).click()
+    await walletAction(page, 'Delete wallet')
     const confirm = page.getByRole('dialog', { name: 'Delete wallet?' })
     await expect(confirm).toContainText('Delete "Test wallet" and 2 transactions? This cannot be undone.')
     await confirm.getByRole('button', { name: 'Cancel' }).click()
     await expect(page.getByRole('heading', { name: 'Test wallet' })).toBeVisible()
 
-    await page.getByRole('button', { name: 'Delete wallet' }).click()
+    await walletAction(page, 'Delete wallet')
     await confirm.getByRole('button', { name: 'Delete' }).click()
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByRole('button', { name: /Test wallet/ })).toHaveCount(0)
@@ -1094,10 +1099,439 @@ test.describe('forms on a phone', () => {
     expect(box!.width).toBe(360)
     expect(box!.height).toBe(740)
     await page.keyboard.press('Escape')
-    await page.getByRole('button', { name: 'Edit wallet' }).click()
+    await walletAction(page, 'Edit wallet')
     await expect(page.getByLabel('Name')).toBeVisible()
     expect(await overflow()).toBe(0)
   })
+})
+
+// ---------------------------------------------------------------- W4
+
+const thisYear = new Date().getFullYear()
+const thisMonthAt = (day: number) => new Date(thisYear, new Date().getMonth(), day, 12, 0).getTime()
+const monthsAgo = (n: number, day = 10) => new Date(thisYear, new Date().getMonth() - n, day, 12, 0).getTime()
+
+const adjust = { ...category, id: 'adj', name: 'Balance adjustment', exclude_from_stats: true, updated_at: 12 }
+const fuel = { ...category, id: 'fuel', name: 'Fuel', color: -1754827, kind: 'EXPENSE', updated_at: 12 }
+const statsRows = {
+  wallets: [wallet, second, third],
+  categories: [{ ...main, kind: 'EXPENSE' }, { ...sub, kind: 'EXPENSE' }, fuel, adjust],
+  transactions: [
+    makeTx('shop', thisMonthAt(2), 300000, 'EXPENSE', { category_id: 'sub', note: 'Šumadija sir' }),
+    makeTx('gas', monthsAgo(1), 500000, 'EXPENSE', { category_id: 'fuel' }),
+    makeTx('none', monthsAgo(1), 100000, 'EXPENSE', { note: 'Plain 340' }),
+    makeTx('pay', monthsAgo(1), 2000000, 'INCOME', { note: 'plata' }),
+    makeTx('adj-row', monthsAgo(2), 9900000, 'INCOME', { category_id: 'adj', note: 'početno stanje' }),
+    makeTx('eur', monthsAgo(1), 7700, 'EXPENSE', { wallet_id: 'w2', note: 'Euro row' }),
+  ],
+}
+
+const pageWide = { width: 1400, height: 900 }
+async function openApp(page: Page, rows: Record<string, unknown[]> = statsRows, path = '/', viewport = pageWide) {
+  await page.setViewportSize(viewport)
+  const server = await fakeSupabase(page, rows)
+  await signedIn(page)
+  await page.goto(path)
+  await expect(page.getByRole('status')).toContainText('Synced')
+  return server
+}
+const summary = (page: Page) => page.getByLabel('Summary')
+
+test.describe('search', () => {
+  test('in a wallet: text, diacritics and amount, with totals and no balances', async ({ page }) => {
+    const problems = cspProblems(page)
+    await openApp(page, statsRows, '/wallet/w1')
+    await page.getByRole('button', { name: 'Search in wallet' }).click()
+    await expect(summary(page)).toContainText('5 items')
+
+    await page.getByLabel('Search', { exact: true }).fill('sumadija')
+    await expect(page.locator('.tx')).toHaveCount(1)
+    await expect(page.locator('.tx')).toContainText('Šumadija sir')
+    await expect(summary(page)).toContainText('1 item')
+    await expect(summary(page)).toContainText('Out −3.000,00')
+    await expect(page.getByText('End balance')).toHaveCount(0)
+
+    await page.getByLabel('Search', { exact: true }).fill('5.000')
+    await expect(page.locator('.tx')).toContainText('Note gas')
+
+    await page.getByLabel('Search', { exact: true }).fill('nothing like this')
+    await expect(page.getByText('Nothing found.')).toBeVisible()
+    await expect(summary(page)).toContainText('0 items')
+
+    await page.getByRole('button', { name: 'Close search' }).click()
+    await expect(page.getByText('End balance').first()).toBeVisible()
+    await expect(page.locator('.tx')).toHaveCount(5)
+    expect(problems).toEqual([])
+  })
+
+  test('filters by type, amount, custom period and category, and Clear resets them', async ({ page }) => {
+    await openApp(page, statsRows, '/wallet/w1')
+    await page.getByRole('button', { name: 'Search in wallet' }).click()
+
+    await page.getByLabel('Type').selectOption('IN')
+    await expect(summary(page)).toContainText('2 items')
+    await page.getByRole('button', { name: 'Clear', exact: true }).click()
+    await expect(summary(page)).toContainText('5 items')
+
+    await page.getByLabel('Minimum amount').fill('1.000')
+    await page.getByLabel('Maximum amount').fill('3000')
+    await expect(page.locator('.tx')).toHaveCount(2)
+    await page.getByRole('button', { name: 'Clear', exact: true }).click()
+    await expect(page.getByLabel('Minimum amount')).toHaveValue('')
+
+    await page.getByLabel('Period').selectOption('THIS_MONTH')
+    await expect(page.locator('.tx')).toHaveCount(1)
+    await page.getByLabel('Period').selectOption('CUSTOM')
+    const day = new Date(thisMonthAt(2))
+    const text = `${String(day.getDate()).padStart(2, '0')}.${String(day.getMonth() + 1).padStart(2, '0')}.${day.getFullYear()}`
+    await page.getByLabel('From date').fill(text)
+    await page.getByLabel('To date').fill(text)
+    await expect(page.locator('.tx')).toHaveCount(1)
+    await page.getByRole('button', { name: 'Clear', exact: true }).click()
+
+    await page.getByRole('button', { name: 'Category' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Categories' })
+    await dialog.getByLabel('Groceries').check()
+    await expect(dialog.getByLabel('Shop')).toBeChecked() // a main includes its subs
+    await expect(dialog.getByLabel('Shop')).toBeDisabled()
+    await dialog.getByRole('button', { name: 'Apply' }).click()
+    await expect(page.locator('.tx')).toContainText('Šumadija sir')
+    await expect(page.locator('.tx')).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Category (1)' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Category (1)' }).click()
+    await dialog.getByLabel('Groceries').uncheck()
+    await dialog.getByLabel('Uncategorized').check()
+    await dialog.getByRole('button', { name: 'Apply' }).click()
+    await expect(summary(page)).toContainText('2 items')
+  })
+
+  test('opens a match in a month that was collapsed', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('saldo.settings', JSON.stringify({ monthsDefault: 'COLLAPSE_EXCEPT_CURRENT' })))
+    await openApp(page, statsRows, '/wallet/w1')
+    await expect(page.locator('.tx', { hasText: 'Plain 340' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Search in wallet' }).click()
+    await page.getByLabel('Search', { exact: true }).fill('340')
+    await expect(page.locator('.tx', { hasText: 'Plain 340' })).toBeVisible()
+  })
+
+  test('globally: one currency at a time, with the wallet shown', async ({ page }) => {
+    await openApp(page, statsRows, '/')
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Search' }).click()
+    await expect(summary(page)).toContainText('5 items')
+    await expect(page.locator('.tx', { hasText: 'Note gas' })).toContainText('Test wallet')
+
+    await page.getByRole('group', { name: 'Currency' }).getByRole('button', { name: 'EUR' }).click()
+    await expect(summary(page)).toContainText('1 item')
+    await expect(summary(page)).toContainText('Net −77,00 EUR')
+    await expect(page.locator('.tx')).toContainText('Euro row')
+  })
+
+  test('a row opened from global search can be deleted, with Undo', async ({ page }) => {
+    await openApp(page, statsRows, '/search')
+    await page.locator('.tx', { hasText: 'Note gas' }).click()
+    await page.getByRole('dialog', { name: 'Transaction details' }).getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(summary(page)).toContainText('4 items')
+    await page.getByRole('alert').getByRole('button', { name: 'Undo' }).click()
+    await expect(summary(page)).toContainText('5 items')
+  })
+})
+
+test.describe('statistics', () => {
+  test('totals, average, category order, and adjustments left out', async ({ page }) => {
+    const problems = cspProblems(page)
+    await openApp(page, statsRows, '/statistics')
+
+    const spending = page.getByRole('region', { name: 'Monthly spending' })
+    await expect(spending).toContainText('Average 750,00 RSD') // 9.000,00 over 12 months
+    const byCategory = page.getByRole('region', { name: 'By category' })
+    await expect(byCategory.locator('.category-total').nth(0)).toContainText('Fuel')
+    await expect(byCategory.locator('.category-total').nth(0)).toContainText('5.000,00')
+    await expect(byCategory.locator('.category-total').nth(0)).toContainText('56 %')
+    await expect(byCategory.locator('.category-total').nth(1)).toContainText('Groceries')
+    await expect(byCategory.locator('.category-total').nth(2)).toContainText('Uncategorized')
+    await expect(byCategory).not.toContainText('Balance adjustment')
+    await expect(page.getByRole('region', { name: 'Income vs expense' })).toContainText('In 20.000,00 · Out 9.000,00 · Net 11.000,00 RSD')
+    await expect(page.getByRole('region', { name: 'Top expenses' }).locator('li').first()).toContainText('5.000,00')
+    expect(problems).toEqual([])
+  })
+
+  test('a month narrows the breakdown, and a sub-category opens its transactions', async ({ page }) => {
+    await openApp(page, statsRows, '/statistics')
+    const spending = page.getByRole('region', { name: 'Monthly spending' })
+    const byCategory = page.getByRole('region', { name: 'By category' })
+    const now = new Date()
+    const name = `${now.toLocaleString('en', { month: 'long' })} ${now.getFullYear()}`
+
+    await spending.getByRole('button', { name: new RegExp(`^${name}`) }).click()
+    await expect(byCategory).toContainText(`By category · ${name}`)
+    await expect(byCategory.locator('.category-total')).toHaveCount(1)
+
+    await byCategory.getByRole('button', { name: /Groceries/ }).first().click()
+    await byCategory.getByRole('button', { name: 'Show transactions: Shop' }).click()
+    await expect(page).toHaveURL(/\/search\?/)
+    await expect(summary(page)).toContainText('1 item')
+    await expect(page.locator('.tx')).toContainText('Šumadija sir')
+    await expect(page.getByLabel('Period')).toHaveValue('CUSTOM')
+  })
+
+  test('Uncategorized opens the rows without a category', async ({ page }) => {
+    await openApp(page, statsRows, '/statistics')
+    await page.getByRole('button', { name: 'Show transactions: Uncategorized' }).click()
+    await expect(page.locator('.tx', { hasText: 'Plain 340' })).toBeVisible()
+    await expect(page.locator('.tx', { hasText: 'Šumadija sir' })).toHaveCount(0)
+  })
+
+  test('currencies never mix, and one wallet can be chosen', async ({ page }) => {
+    await openApp(page, statsRows, '/statistics')
+    await page.getByLabel('Currency').selectOption('EUR')
+    await expect(page.getByRole('region', { name: 'By category' })).toContainText('Spent 77,00 EUR')
+
+    await page.getByLabel('Wallet').selectOption('w3')
+    await expect(page.getByLabel('Currency')).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'By category' })).toContainText('No expenses in this period.')
+  })
+
+  test('a wallet opens its own statistics, and periods change the range', async ({ page }) => {
+    await openApp(page, statsRows, '/wallet/w1')
+    await walletAction(page, 'Wallet statistics')
+    await expect(page.getByLabel('Wallet')).toHaveValue('w1')
+    await expect(page.locator('.column')).toHaveCount(24) // both charts, 12 months each
+    await page.getByRole('button', { name: 'Last year' }).click()
+    await expect(page.locator('button.column')).toHaveCount(12)
+    await expect(page.getByRole('region', { name: 'By category' })).toContainText('By category · Last year')
+  })
+
+  test('has a table view, and bars have the right heights', async ({ page }) => {
+    await openApp(page, statsRows, '/statistics')
+    const spending = page.getByRole('region', { name: 'Monthly spending' })
+    await spending.getByText('Show as table').click()
+    await expect(spending.locator('tbody tr').first()).toContainText('3.000,00')
+
+    const bars = spending.locator('.chart-bar')
+    const heights = await bars.evaluateAll((list) => list.map((bar) => bar.getBoundingClientRect().height))
+    const tallest = Math.max(...heights)
+    expect(tallest).toBeGreaterThan(50)
+    expect(heights.filter((h) => h === tallest)).toHaveLength(1)
+    expect(heights.filter((h) => h === 0)).toHaveLength(10)
+
+    // The axis labels sit level with their grid lines.
+    const lines = await spending.locator('.grid-line').evaluateAll((list) => list.map((line) => line.getBoundingClientRect().top))
+    const labels = await spending.locator('.plot-axis span').evaluateAll((list) => list.map((label) => {
+      const box = label.getBoundingClientRect()
+      return box.top + box.height / 2
+    }))
+    labels.forEach((middle, i) => expect(Math.abs(middle - lines[i]!)).toBeLessThan(2))
+  })
+
+  test('the tooltip shows on hover', async ({ page }) => {
+    await openApp(page, statsRows, '/statistics')
+    const column = page.getByRole('region', { name: 'Income vs expense' }).locator('.column').nth(10)
+    await expect(column.locator('.tip')).toBeHidden()
+    await column.hover()
+    await expect(column.locator('.tip')).toBeVisible()
+    await expect(column.locator('.tip')).toContainText('Net 14.000,00 RSD') // last month: in 20.000,00, out 6.000,00
+  })
+})
+
+test.describe('categories', () => {
+  const nav = (page: Page) => page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Categories' })
+  const row = (page: Page, name: string) => page.locator('.category-row', { hasText: name })
+
+  test('tabs show the tree, the flat list and the unlinked', async ({ page }) => {
+    const rows = { ...statsRows, categories: [...statsRows.categories, { ...sub, id: 'loose', name: 'Loose', parent_id: null, updated_at: 12 }] }
+    await openApp(page, rows)
+    await nav(page).click()
+    await expect(row(page, 'Groceries')).toContainText('1 transaction')
+    await expect(page.locator('.category-row.indented', { hasText: 'Shop' })).toBeVisible()
+
+    await page.getByRole('tab', { name: 'Sub', exact: true }).click()
+    await expect(row(page, 'Shop')).toContainText('Groceries')
+    await page.getByRole('tab', { name: 'Unlinked (1)' }).click()
+    await expect(page.locator('.category-row')).toHaveCount(1)
+    await expect(row(page, 'Loose')).toBeVisible()
+  })
+
+  test('an edit changes everything it shows and goes out', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/categories')
+    await row(page, 'Fuel').getByRole('button').click()
+    const dialog = page.getByRole('dialog', { name: 'Edit category' })
+    await dialog.getByLabel('Name').fill('Gorivo')
+    await dialog.getByLabel('Level').selectOption('SUB')
+    await dialog.getByLabel('Parent (main category)').selectOption('main')
+    await dialog.getByLabel('Used for').selectOption('BOTH')
+    await dialog.getByLabel('Quick pick').check()
+    await dialog.getByLabel('Exclude from statistics').check()
+    await dialog.getByRole('radio', { name: 'Color #1e88e5' }).click()
+    await dialog.getByLabel('Match keywords').fill('OMV, NIS PETROL')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+
+    await sync(page)
+    await expect.poll(() => saved(server, 'categories')[0]).toMatchObject({
+      id: 'fuel', name: 'Gorivo', level: 'SUB', parent_id: 'main', kind: 'BOTH', is_quick_pick: true, exclude_from_stats: true,
+      color: -14776091, match_keywords: 'OMV|NIS PETROL',
+    })
+  })
+
+  test('refuses a duplicate name, and a main with subs stays main', async ({ page }) => {
+    await openApp(page, statsRows, '/categories')
+    await row(page, 'Groceries').getByRole('button').click()
+    const dialog = page.getByRole('dialog', { name: 'Edit category' })
+    await expect(dialog.getByLabel('Level')).toBeDisabled()
+    await dialog.getByLabel('Name').fill('FUEL')
+    await expect(dialog.getByRole('alert')).toHaveText('Name already exists')
+    await expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  test('the quick checkbox works from the list', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/categories')
+    await page.getByLabel('Quick pick: Fuel').check()
+    await sync(page)
+    await expect.poll(() => saved(server, 'categories')[0]).toMatchObject({ id: 'fuel', is_quick_pick: true })
+  })
+
+  test('creates a category', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/categories')
+    await page.getByRole('button', { name: 'New category' }).click()
+    const dialog = page.getByRole('dialog', { name: 'New category' })
+    await expect(dialog.getByRole('button', { name: 'Create' })).toBeDisabled()
+    await dialog.getByLabel('Name').fill('Pets')
+    await dialog.getByLabel('Level').selectOption('MAIN')
+    await dialog.getByRole('button', { name: 'Create' }).click()
+    await expect(row(page, 'Pets')).toBeVisible()
+    await sync(page)
+    await expect.poll(() => saved(server, 'categories')[0]).toMatchObject({ name: 'Pets', level: 'MAIN', parent_id: null })
+  })
+
+  test('deleting a sub moves its transactions to the parent', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/categories')
+    await row(page, 'Shop').getByRole('button').click()
+    await page.getByRole('dialog', { name: 'Edit category' }).getByRole('button', { name: 'Delete' }).click()
+    const confirm = page.getByRole('dialog', { name: 'Delete "Shop"?' })
+    await expect(confirm).toContainText('Its transactions move to Groceries.')
+    await confirm.getByRole('button', { name: 'Delete' }).click()
+    await expect(row(page, 'Shop')).toHaveCount(0)
+    await sync(page)
+    await expect.poll(() => saved(server).find((r) => r.id === 'shop')).toMatchObject({ category_id: 'main' })
+    await expect.poll(() => typeof saved(server, 'categories').find((r) => r.id === 'sub')?.deleted_at).toBe('number')
+  })
+
+  test('merging moves the transactions and deletes the duplicate', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/categories')
+    await row(page, 'Fuel').getByRole('button').click()
+    await page.getByRole('dialog', { name: 'Edit category' }).getByRole('button', { name: 'Merge into…' }).click()
+    await page.getByRole('dialog', { name: 'Merge category' }).getByRole('button', { name: 'Groceries' }).click()
+    await expect(row(page, 'Fuel')).toHaveCount(0)
+    await expect(row(page, 'Groceries')).toContainText('2 transactions')
+    await sync(page)
+    await expect.poll(() => saved(server).find((r) => r.id === 'gas')).toMatchObject({ category_id: 'main' })
+  })
+
+  test('an account without categories is told to use the phone, and cannot create one', async ({ page }) => {
+    await openApp(page, { wallets: [wallet] }, '/categories')
+    await expect(page.getByText('Open Saldo on your phone once')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'New category' })).toHaveCount(0)
+  })
+})
+
+test.describe('monthly fees', () => {
+  const rule = {
+    ...common, id: 'r1', wallet_id: 'w1', kind: 'EXPENSE', amount_minor: 34000, category_id: 'main', note_template: 'održavanje za {month} {year}',
+    schedule: 'MONTHLY_LAST_DAY', time_of_day: '23:59', month_name_locale: 'sr-Latn', start_period: '2026-01', last_generated_period: '2026-10', is_active: true, updated_at: 13,
+  }
+  const feeRows = { ...statsRows, recurring_rules: [rule] }
+
+  test('a list with the rendered note and what was booked', async ({ page }) => {
+    await openApp(page, feeRows)
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Monthly fees' }).click()
+    const card = page.locator('.fee-card')
+    await expect(card).toContainText('−340,00 RSD')
+    await expect(card).toContainText('Test wallet')
+    await expect(card).toContainText('From January 2026 · last booked October 2026')
+    await expect(page.getByText('Your phone books the fees')).toBeVisible()
+  })
+
+  test('an edit goes out without last_generated_period, and books nothing', async ({ page }) => {
+    const server = await openApp(page, feeRows, '/fees')
+    await page.locator('.fee-open').click()
+    const dialog = page.getByRole('dialog', { name: 'Edit monthly fee' })
+    await dialog.getByLabel('Amount taken every month').fill('400')
+    await dialog.getByLabel('Note text').fill('fee {Month} / {mm}')
+    await expect(dialog.getByLabel('Preview')).toContainText('fee ')
+    await dialog.getByRole('button', { name: 'Next month' }).click()
+    await expect(dialog).toContainText('February 2026')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+
+    await sync(page)
+    await expect.poll(() => saved(server, 'recurring_rules')[0]).toMatchObject({ id: 'r1', amount_minor: 40000, note_template: 'fee {Month} / {mm}', start_period: '2026-02' })
+    expect(saved(server, 'recurring_rules')[0]).not.toHaveProperty('last_generated_period')
+    expect(saved(server)).toEqual([])
+  })
+
+  test('a new fee has a preview and needs an amount', async ({ page }) => {
+    const server = await openApp(page, feeRows, '/fees')
+    await page.getByRole('button', { name: 'New monthly fee' }).click()
+    const dialog = page.getByRole('dialog', { name: 'New monthly fee' })
+    await expect(dialog.getByLabel('Preview')).toContainText('održavanje računa za mesec')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('Enter an amount (max 2 decimals)')
+    await dialog.getByLabel('Wallet').selectOption('w3')
+    await dialog.getByLabel('Amount taken every month').fill('250')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await expect(page.locator('.fee-card')).toHaveCount(2)
+    await expect(page.locator('.fee-card').last()).toContainText('not booked yet')
+    await sync(page)
+    await expect.poll(() => saved(server, 'recurring_rules')[0]).toMatchObject({ wallet_id: 'w3', amount_minor: 25000, schedule: 'MONTHLY_LAST_DAY', is_active: true })
+    expect(saved(server)).toEqual([])
+  })
+
+  test('switching off and deleting', async ({ page }) => {
+    const server = await openApp(page, feeRows, '/fees')
+    await page.locator('.fee-card').getByRole('checkbox').uncheck()
+    await sync(page)
+    await expect.poll(() => saved(server, 'recurring_rules')[0]).toMatchObject({ id: 'r1', is_active: false })
+
+    await page.locator('.fee-open').click()
+    await page.getByRole('button', { name: 'Delete rule' }).click()
+    const confirm = page.getByRole('dialog', { name: 'Delete this monthly fee?' })
+    await expect(confirm).toContainText('Fees already booked stay in the wallet.')
+    await confirm.getByRole('button', { name: 'Delete' }).click()
+    await expect(page.locator('.fee-card')).toHaveCount(0)
+    await expect(page.getByText('No monthly fees yet.')).toBeVisible()
+  })
+
+  test('from a wallet, only its fees and no wallet choice', async ({ page }) => {
+    await openApp(page, { ...statsRows, recurring_rules: [rule, { ...rule, id: 'r2', wallet_id: 'w3', note_template: 'other' }] }, '/wallet/w3')
+    await walletAction(page, 'Wallet monthly fees')
+    await expect(page.locator('.fee-card')).toHaveCount(1)
+    await expect(page.locator('.fee-card')).toContainText('other')
+    await page.getByRole('button', { name: 'New monthly fee' }).click()
+    await expect(page.getByLabel('Wallet')).toHaveCount(0)
+  })
+})
+
+test.describe('settings', () => {
+  test('previews the month colors', async ({ page }) => {
+    await openApp(page)
+    await page.getByRole('button', { name: 'Settings' }).click()
+    const cells = page.locator('.month-preview > span')
+    await expect(cells).toHaveCount(12)
+    await page.getByLabel('Month colors').selectOption('OFF')
+    await expect(cells.first().locator('span').last()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  })
+})
+
+test.describe('new pages on a phone', () => {
+  for (const path of ['/statistics', '/search', '/categories', '/fees', '/wallet/w1']) {
+    test(`${path} has no sideways scrolling`, async ({ page }) => {
+      await openApp(page, statsRows, path, { width: 360, height: 740 })
+      if (path === '/wallet/w1') await page.getByRole('button', { name: 'Search in wallet' }).click()
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+      expect(overflow).toBe(0)
+      const inner = await page.locator('.page, .pane').first().evaluate((el) => el.scrollWidth - el.clientWidth)
+      expect(inner).toBeLessThanOrEqual(0)
+    })
+  }
 })
 
 test('screens for a visual check', async ({ page }) => {
@@ -1125,7 +1559,38 @@ test('screens for a visual check', async ({ page }) => {
   await page.screenshot({ path: `${dir}/form-wide.png` })
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Discard' }).click()
-  await page.getByRole('button', { name: 'Edit wallet' }).click()
+  await walletAction(page, 'Edit wallet')
   await page.getByLabel('Name').waitFor()
   await page.screenshot({ path: `${dir}/wallet-form-wide.png` })
+  await page.keyboard.press('Escape')
+  const many = {
+    wallets: [wallet, second, third],
+    categories: statsRows.categories,
+    transactions: Array.from({ length: 12 }, (_, i) => [
+      makeTx(`o${i}`, monthsAgo(i), 150000 + ((i * 73) % 11) * 40000, 'EXPENSE', { category_id: i % 3 ? 'sub' : 'fuel' }),
+      makeTx(`i${i}`, monthsAgo(i, 5), 700000 + ((i * 31) % 7) * 30000, 'INCOME'),
+    ]).flat(),
+  }
+  const statsPage = await page.context().newPage()
+  await fakeSupabase(statsPage, many)
+  await signedIn(statsPage)
+  await statsPage.setViewportSize({ width: 1400, height: 1000 })
+  await statsPage.goto('/statistics')
+  await expect(statsPage.getByRole('status')).toContainText('Synced')
+  await statsPage.getByRole('region', { name: 'By category' }).getByRole('button', { name: /Groceries/ }).first().click()
+  await statsPage.screenshot({ path: `${dir}/stats-light.png` })
+  await statsPage.getByRole('button', { name: 'Settings' }).click()
+  await statsPage.getByLabel('Theme').selectOption('DARK')
+  await statsPage.keyboard.press('Escape')
+  await statsPage.locator('.column').nth(3).hover()
+  await statsPage.screenshot({ path: `${dir}/stats-dark.png` })
+  await statsPage.setViewportSize({ width: 390, height: 800 })
+  await statsPage.screenshot({ path: `${dir}/stats-phone.png` })
+  await statsPage.goto('/search')
+  await statsPage.setViewportSize({ width: 1400, height: 800 })
+  await statsPage.getByLabel('Period').selectOption('THIS_YEAR')
+  await statsPage.screenshot({ path: `${dir}/search-dark.png` })
+  await statsPage.goto('/categories')
+  await statsPage.locator('.category-row').first().waitFor()
+  await statsPage.screenshot({ path: `${dir}/categories-dark.png` })
 })

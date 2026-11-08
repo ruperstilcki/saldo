@@ -7,6 +7,9 @@ export interface TransactionRow extends Transaction {
   categoryName: string | null
   parentName: string | null
   categoryColor: number | null
+  /** The parent of the category, if it is a live one. */
+  parentId: string | null
+  walletName?: string
 }
 
 /** Live transactions, newest first. A deleted category counts as no category. */
@@ -22,6 +25,7 @@ export function buildRows(transactions: Transaction[], categories: Category[]): 
         categoryName: category?.name ?? null,
         parentName: parent?.name ?? null,
         categoryColor: category?.color ?? parent?.color ?? null,
+        parentId: category?.parentId ?? null,
       }
     })
     .sort((a, b) => b.occurredAt - a.occurredAt || b.createdAt - a.createdAt)

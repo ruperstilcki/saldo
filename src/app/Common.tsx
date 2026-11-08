@@ -95,6 +95,52 @@ export function Modal({ label, onClose, children, wide }: ModalProps) {
   )
 }
 
+/** A checkbox whose value is saved in the database: it shows the new state at once, without waiting for the write. */
+export function SavedCheckbox({ checked, label, onSave }: { checked: boolean; label: string; onSave: (value: boolean) => void | Promise<void> }) {
+  const [shown, setShown] = useState(checked)
+  useEffect(() => setShown(checked), [checked])
+  return (
+    <input
+      type="checkbox"
+      aria-label={label}
+      checked={shown}
+      onChange={(e) => {
+        setShown(e.target.checked)
+        void onSave(e.target.checked)
+      }}
+    />
+  )
+}
+
+/** A button that opens a small list of actions. */
+export function Menu({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: Event) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div className="menu" ref={root}>
+      <button aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{label} ▾</button>
+      {open && <div className="menu-list" onClick={() => setOpen(false)}>{children}</div>}
+    </div>
+  )
+}
+
 interface ConfirmProps {
   title: string
   text: string

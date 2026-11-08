@@ -13,6 +13,9 @@
   --on-primary-container: #001a41;
   --danger: #ba1a1a;
   --row-line: rgb(27 27 33 / 12%);
+  --series-in: #1e5bb8;
+  --series-out: #c8691a;
+  --grid: #e3e1ea;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 15px;
 }
@@ -32,6 +35,9 @@
     --on-primary-container: #d8e2ff;
     --danger: #ffb4ab;
     --row-line: rgb(227 225 233 / 12%);
+    --series-in: #4d8ce8;
+    --series-out: #d47a28;
+    --grid: #2c2e34;
   }
 }
 
@@ -49,6 +55,9 @@
   --on-primary-container: #d8e2ff;
   --danger: #ffb4ab;
   --row-line: rgb(227 225 233 / 12%);
+  --series-in: #4d8ce8;
+  --series-out: #d47a28;
+  --grid: #2c2e34;
 }
 
 * { box-sizing: border-box; }
@@ -262,3 +271,127 @@ select { background: var(--bg); border: 1px solid var(--border); border-radius: 
   .modal.wide { height: 100%; max-height: 100%; border-radius: 0; border-width: 0; align-content: start; }
   .backdrop:has(> .modal.wide) { padding: 0; }
 }
+
+/* ---------- top navigation */
+.main-nav { display: flex; flex-wrap: wrap; gap: 4px; }
+.main-nav button { border-color: transparent; background: none; padding: 5px 10px; }
+.main-nav button[aria-current='page'] { background: var(--primary-container); color: var(--on-primary-container); }
+.danger-text { color: var(--danger); }
+.strong { font-weight: 600; }
+@media (max-width: 640px) {
+  .main-nav { order: 4; flex-basis: 100%; }
+  .main-nav button { padding: 4px 8px; font-size: 0.9rem; }
+}
+
+/* ---------- small menu */
+.menu { position: relative; }
+.menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 6; min-width: 190px; display: grid; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 20px rgb(0 0 0 / 25%); }
+.menu-list button { border: 0; background: none; text-align: left; padding: 8px 10px; }
+@media (max-width: 640px) {
+  .menu-list { right: auto; left: 0; }
+}
+
+/* ---------- full pages */
+.page { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); container: pane / inline-size; overflow-y: auto; }
+.search-page { overflow: hidden; }
+.page-header { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.page-header h1 { font-size: 1.25rem; }
+.page-scroll { padding: 12px 16px 24px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---------- search */
+.filters { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.filters input, .filters select { width: auto; }
+.filters .filter-query { flex: 1 1 240px; min-width: 0; width: 100%; }
+.filters .filter-small { flex: 0 1 112px; min-width: 76px; width: 112px; }
+.summary { flex: none; display: flex; flex-wrap: wrap; gap: 2px 16px; padding: 9px 16px; background: var(--surface-high); border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.category-choice { display: grid; gap: 2px; max-height: 55dvh; overflow-y: auto; }
+.category-choice label { display: flex; align-items: center; gap: 8px; padding: 5px 2px; cursor: pointer; }
+.category-choice .indented { padding-left: 24px; }
+
+/* ---------- statistics */
+.stats-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.stats-grid { display: grid; gap: 14px; padding: 14px 16px 6px; grid-template-columns: minmax(0, 1fr); }
+@container pane (min-width: 1000px) {
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.stat-card { display: grid; gap: 8px; align-content: start; min-width: 0; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }
+.stats-note { padding: 6px 16px 20px; font-size: 0.85rem; }
+
+.plot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; margin-top: 8px; }
+.plot { --axis-width: 44px; }
+.plot-axis { position: relative; width: var(--axis-width); height: 180px; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 1; }
+.plot-axis > span { position: absolute; right: 0; transform: translateY(50%); }
+.plot-area { position: relative; min-width: 0; }
+.grid-line { position: absolute; left: 0; right: 0; height: 1px; background: var(--grid); pointer-events: none; }
+.plot-columns { position: relative; display: flex; align-items: stretch; height: 200px; }
+.plot-canvas { position: absolute; left: 0; right: 0; top: 0; height: 180px; pointer-events: none; }
+.average-line { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--text); z-index: 1; pointer-events: none; }
+.average-label { position: absolute; right: 0; bottom: 3px; font-size: 0.72rem; color: var(--muted); }
+.column { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 0; border: 0; border-radius: 0; background: none; cursor: default; }
+button.column { cursor: pointer; }
+.column:hover:not(:disabled), .column:focus-visible { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.column.dim .chart-bar { opacity: 0.35; }
+.bars { flex: none; width: 100%; height: 180px; display: flex; align-items: flex-end; justify-content: center; gap: 2px; padding: 0 12%; }
+.chart-bar { flex: 1 1 0; max-width: 24px; min-width: 1px; border-radius: 4px 4px 0 0; }
+.series-in { background: var(--series-in); }
+.series-out { background: var(--series-out); }
+.col-label { flex: none; height: 20px; display: flex; align-items: flex-end; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+.label-narrow { display: none; }
+@container pane (max-width: 560px) {
+  .label-wide { display: none; }
+  .label-narrow { display: inline; }
+}
+.tip { position: absolute; left: 50%; bottom: calc(100% - 24px); transform: translateX(-50%); z-index: 3; display: none; width: max-content; max-width: 220px; padding: 6px 9px; border-radius: 8px; background: var(--text); color: var(--surface); font-size: 0.8rem; line-height: 1.35; font-weight: 400; text-align: left; font-variant-numeric: tabular-nums; pointer-events: none; }
+.column:hover .tip, .column:focus-visible .tip { display: block; }
+.column:first-child .tip, .column:nth-child(2) .tip { left: 0; transform: none; }
+.column:last-child .tip, .column:nth-last-child(2) .tip { left: auto; right: 0; transform: none; }
+.legend { display: flex; gap: 16px; font-size: 0.87rem; }
+.legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.legend-mark { width: 12px; height: 12px; border-radius: 3px; }
+.month-table summary { cursor: pointer; color: var(--primary); }
+.table-scroll { overflow-x: auto; margin-top: 8px; }
+.month-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.month-table th, .month-table td { padding: 4px 8px; text-align: right; border-bottom: 1px solid var(--row-line); white-space: nowrap; }
+.month-table th:first-child, .month-table td:first-child { text-align: left; }
+
+.category-totals { display: grid; }
+.category-total { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--row-line); }
+.category-total-main { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; }
+.plain-link { padding: 0; border: 0; background: none; font-weight: 600; text-align: left; }
+.plain-link:hover:not(:disabled) { background: none; text-decoration: underline; }
+.category-amount { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 0.92rem; }
+.share-track { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.share-fill { display: block; height: 100%; border-radius: 3px; background: var(--muted); }
+.category-subs { display: grid; gap: 2px; padding: 6px 0 8px 20px; }
+.category-sub { display: flex; align-items: center; gap: 8px; }
+.grow-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.category-total .link, .category-sub .link { padding: 2px 4px; }
+.top-list { margin: 0; padding: 0; list-style: none; display: grid; }
+.top-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--row-line); }
+.top-text { min-width: 0; display: grid; overflow-wrap: anywhere; }
+
+/* ---------- categories */
+.tabs { flex: none; display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 10px 14px; }
+.tabs button.on { border-bottom-color: var(--primary); font-weight: 600; }
+.category-list { display: grid; }
+.category-row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--row-line); }
+.category-row.indented { padding-left: 28px; }
+.category-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; border: 0; background: none; text-align: left; padding: 9px 4px; border-radius: 6px; }
+.category-text { min-width: 0; display: grid; overflow-wrap: anywhere; }
+.quick-toggle { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 0.87rem; padding: 0 6px; cursor: pointer; }
+.color-dot.none { background: none; border: 1px solid var(--border); color: var(--muted); }
+.month-preview { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 2px; border-radius: 6px; overflow: hidden; }
+.month-preview > span { display: grid; }
+.month-preview > span > span { display: block; height: 12px; }
+
+/* ---------- monthly fees */
+.fee-note { margin: 0 0 12px; font-size: 0.9rem; background: var(--bg); }
+.fee-list { display: grid; gap: 8px; }
+@container pane (min-width: 900px) {
+  .fee-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.fee-card { display: flex; align-items: center; gap: 8px; min-width: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+.fee-open { flex: 1; min-width: 0; display: grid; gap: 1px; border: 0; background: none; text-align: left; padding: 12px; border-radius: 12px; overflow-wrap: anywhere; }
+.month-stepper { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 320px; }

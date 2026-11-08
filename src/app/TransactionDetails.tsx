@@ -9,7 +9,7 @@ import { argbToHex } from '../ui/monthTints'
 import { Modal } from './Common'
 import { duplicateTransactionPath, editTransactionPath, navigate } from './router'
 import { syncManager } from './services'
-import { CategoryChip } from './WalletPane'
+import { CategoryChip } from './TxTable'
 
 const SOURCE_LABELS: Record<string, string> = {
   MANUAL: 'Manual',
