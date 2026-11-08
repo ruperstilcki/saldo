@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { readFileSync, writeFileSync } from 'node:fs'
 
 const SUPABASE = 'https://fake-project.supabase.co'
 const STORAGE_KEY = 'sb-fake-project-auth-token'
@@ -42,6 +43,15 @@ async function fakeSupabase(page: Page, rows: Record<string, unknown[]> = { wall
       server.logouts.push(url.searchParams.get('scope') ?? '')
       return route.fulfill({ status: 204, headers: cors })
     }
+    if (url.pathname === '/auth/v1/token') {
+      return route.fulfill({
+        headers: cors,
+        json: {
+          access_token: 'fresh.fresh.fresh', refresh_token: 'fresh', token_type: 'bearer', expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600,
+          user: { id: UID, email: 'test@example.com', aud: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '' },
+        },
+      })
+    }
     if (url.pathname.startsWith('/storage/v1/object/')) {
       server.uploads.push({ path: url.pathname.replace('/storage/v1/object/', ''), type: request.headers()['content-type'] ?? null })
       return route.fulfill({ json: { Key: 'x', Id: 'x' }, headers: cors })
@@ -79,7 +89,7 @@ async function signedIn(page: Page, lastOpenedAt = Date.now()) {
 
 async function signOut(page: Page) {
   await page.getByRole('button', { name: 'Settings' }).click()
-  await page.getByRole('button', { name: 'Sign out' }).click()
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
 }
 
 async function walletAction(page: Page, name: string) {
@@ -1577,6 +1587,235 @@ test.describe('new pages on a phone', () => {
       expect(overflow).toBe(0)
       const inner = await page.locator('.page, .pane').first().evaluate((el) => el.scrollWidth - el.clientWidth)
       expect(inner).toBeLessThanOrEqual(0)
+    })
+  }
+})
+
+// ---------------------------------------------------------------- W5
+
+const expireToken = (page: Page) =>
+  page.evaluate((key) => {
+    const session = JSON.parse(localStorage.getItem(key)!)
+    session.expires_at = Math.floor(Date.now() / 1000) - 7200
+    localStorage.setItem(key, JSON.stringify(session))
+  }, STORAGE_KEY)
+
+/** The service worker has taken over and stored the whole app. */
+const appIsStored = (page: Page) =>
+  page.waitForFunction(async () => {
+    const worker = await navigator.serviceWorker.ready
+    return !!navigator.serviceWorker.controller && worker.active?.state === 'activated'
+  })
+
+test.describe('without a connection', () => {
+  test.use({ serviceWorkers: 'allow' })
+
+  async function goOffline(page: Page, server: Server) {
+    await appIsStored(page)
+    server.offline = true
+    await page.context().setOffline(true)
+  }
+
+  async function goOnline(page: Page, server: Server) {
+    server.offline = false
+    await page.context().setOffline(false)
+  }
+
+  test('the app opens, works, and sends its changes when the connection returns', async ({ page }) => {
+    const problems = cspProblems(page)
+    const server = await openApp(page, statsRows, '/')
+    await goOffline(page, server)
+
+    await page.reload()
+    await page.getByRole('button', { name: /Test wallet/ }).click()
+    await expect(page.locator('.tx', { hasText: 'Note gas' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'New transaction' }).click()
+    await page.getByLabel('Amount').fill('12,34')
+    await page.getByLabel('Note').fill('Bought offline')
+    await form(page, 'New transaction').getByRole('button', { name: 'Save' }).click()
+    await expect(page.locator('.tx', { hasText: 'Bought offline' })).toBeVisible()
+    await sync(page)
+    await expect(page.getByRole('status')).toContainText('Offline')
+    await expect(page.getByRole('status')).toContainText('1 unsent')
+    expect(saved(server)).toEqual([])
+
+    await goOnline(page, server)
+    await expect.poll(() => saved(server).at(-1)?.note).toBe('Bought offline')
+    await expect(page.getByRole('status')).not.toContainText('unsent')
+    await expect(page.getByRole('status')).not.toContainText('Offline')
+    expect(problems).toEqual([])
+  })
+
+  test('any address of the app opens', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/')
+    await goOffline(page, server)
+    for (const [path, text] of [['/wallet/w1', 'Note gas'], ['/statistics', 'Monthly spending'], ['/categories', 'Fuel'], ['/fees', 'No monthly fees yet.']] as const) {
+      await page.goto(path)
+      await expect(page.getByText(text).first()).toBeVisible()
+    }
+  })
+
+  test('an expired token does not keep the app waiting or end the session', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/wallet/w1')
+    await expect(page.locator('.tx', { hasText: 'Note gas' })).toBeVisible()
+    await goOffline(page, server)
+    await expireToken(page)
+
+    const started = Date.now()
+    await page.reload()
+    await expect(page.locator('.tx', { hasText: 'Note gas' })).toBeVisible()
+    expect(Date.now() - started).toBeLessThan(5_000)
+    await expect(page.getByRole('button', { name: 'Sign in with Google' })).toHaveCount(0)
+
+    await page.locator('.tx', { hasText: 'Note gas' }).click()
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByLabel('Note').fill('Written offline')
+    await form(page, 'Edit transaction').getByRole('button', { name: 'Save' }).click()
+    await sync(page)
+    await expect(page.getByRole('status')).toContainText('1 unsent')
+
+    // Back online the token is renewed, and the change goes out.
+    await goOnline(page, server)
+    await expect.poll(() => saved(server).at(-1)?.note, { timeout: 15_000 }).toBe('Written offline')
+    await expect(page.getByRole('status')).not.toContainText('unsent')
+  })
+
+  test('an expired session still ends, at once, and keeps unsent changes for the same account', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/wallet/w1')
+    await expect(page.locator('.tx', { hasText: 'Note gas' })).toBeVisible()
+    await goOffline(page, server)
+
+    await page.locator('.tx', { hasText: 'Note gas' }).click()
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByLabel('Note').fill('Kept for later')
+    await form(page, 'Edit transaction').getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByRole('status')).toContainText('1 unsent')
+
+    await expireToken(page)
+    await page.evaluate((opened) => localStorage.setItem('saldo.lastOpenedAt', String(opened)), Date.now() - 31 * DAY)
+    const started = Date.now()
+    await page.reload()
+    await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible()
+    expect(Date.now() - started).toBeLessThan(5_000)
+    await expect(page.getByText('Kept for later')).toHaveCount(0)
+
+    const unsent = await page.evaluate(() => new Promise<number>((resolve) => {
+      const open = indexedDB.open('saldo')
+      open.onsuccess = () => {
+        const request = open.result.transaction('transactions').objectStore('transactions').index('syncState').count('DIRTY')
+        request.onsuccess = () => resolve(request.result)
+      }
+    }))
+    expect(unsent).toBe(1)
+  })
+
+  test('Sign out without a connection does not hang and keeps unsent changes', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/wallet/w1')
+    await expect(page.locator('.tx', { hasText: 'Note gas' })).toBeVisible()
+    await goOffline(page, server)
+    await expireToken(page)
+    await page.locator('.tx', { hasText: 'Note gas' }).click()
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByLabel('Note').fill('Unsent at sign out')
+    await form(page, 'Edit transaction').getByRole('button', { name: 'Save' }).click()
+
+    const started = Date.now()
+    await signOut(page)
+    await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible()
+    expect(Date.now() - started).toBeLessThan(5_000)
+    await expect(page.getByText('Unsent at sign out')).toHaveCount(0)
+  })
+
+  test('only the app is stored: no data, and nothing from Supabase', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/wallet/w1')
+    await expect(page.locator('.tx', { hasText: 'Note gas' })).toBeVisible()
+    await appIsStored(page)
+    expect(server.upserts).toEqual([])
+    const urls = await page.evaluate(async () => {
+      const found: string[] = []
+      for (const key of await caches.keys()) {
+        for (const request of await (await caches.open(key)).keys()) found.push(new URL(request.url).pathname + new URL(request.url).host)
+      }
+      return found
+    })
+    expect(urls.length).toBeGreaterThan(3)
+    for (const url of urls) expect(url).toContain('localhost')
+    expect(urls.join()).not.toContain('supabase')
+    expect(urls.some((url) => url.startsWith('/assets/'))).toBe(true)
+    expect(urls.some((url) => url.startsWith('/_'))).toBe(false)
+  })
+
+  test('a new version replaces the old one on the next opening', async ({ page }) => {
+    const server = await openApp(page, statsRows, '/')
+    await appIsStored(page)
+    expect(server.upserts).toEqual([])
+    const before = await page.evaluate(() => caches.keys())
+    expect(before).toHaveLength(1)
+
+    // The same app under a new version number, as a new deployment would bring.
+    const original = readFileSync('dist/sw.js', 'utf8')
+    try {
+      writeFileSync('dist/sw.js', original.replace(/saldo-[0-9a-f]+/, 'saldo-newversion'))
+      await page.evaluate(async () => {
+        const registration = await navigator.serviceWorker.ready
+        await registration.update()
+      })
+      await expect.poll(() => page.evaluate(() => caches.keys())).toEqual(['saldo-newversion'])
+    } finally {
+      writeFileSync('dist/sw.js', original)
+    }
+    await page.reload()
+    await expect(page.getByRole('button', { name: /Test wallet/ })).toBeVisible()
+  })
+})
+
+test('a brief loss of connection on returning to the tab keeps the user in', async ({ page }) => {
+  const server = await openApp(page, statsRows, '/wallet/w1')
+  await expect(page.locator('.tx', { hasText: 'Note gas' })).toBeVisible()
+  server.offline = true
+  await expireToken(page)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await page.waitForTimeout(3_500)
+  await expect(page.getByRole('button', { name: 'Sign in with Google' })).toHaveCount(0)
+  await expect(page.locator('.tx', { hasText: 'Note gas' })).toBeVisible()
+})
+
+test('the app can be installed: a manifest with real icons', async ({ page }) => {
+  await page.goto('/')
+  const href = await page.locator('link[rel="manifest"]').getAttribute('href')
+  const manifest = await (await page.request.get(href!)).json()
+  expect(manifest).toMatchObject({ name: 'Saldo', start_url: '/', display: 'standalone' })
+  for (const icon of manifest.icons) {
+    const response = await page.request.get(icon.src)
+    expect(response.headers()['content-type']).toBe('image/png')
+    const [width] = icon.sizes.split('x').map(Number)
+    const size = await page.evaluate(async (src) => (await createImageBitmap(await (await fetch(src)).blob())).width, icon.src)
+    expect(size).toBe(width)
+  }
+})
+
+test.describe('every page at every width', () => {
+  const paths = ['/', '/wallet/w1', '/wallet/w1/new', '/statistics', '/search', '/categories', '/fees', '/archived', '/new-wallet']
+  for (const width of [320, 360, 600, 768, 1024, 1400, 1920]) {
+    test(`${width}px: no sideways scrolling`, async ({ page }) => {
+      await openApp(page, statsRows, '/', { width, height: 800 })
+      for (const path of paths) {
+        await page.goto(path)
+        await page.locator('main, .app').first().waitFor()
+        await page.waitForTimeout(60)
+        const overflow = await page.evaluate(() => {
+          const wide = [...document.querySelectorAll<HTMLElement>('body, .app, .page, .pane, .side, .table, .modal, .bar, .stat-card, .filters')]
+            .filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX !== 'visible')
+            .map((el) => el.className)
+          return { page: document.documentElement.scrollWidth - document.documentElement.clientWidth, wide }
+        })
+        expect(overflow.page, path).toBe(0)
+        expect(overflow.wide, path).toEqual([])
+      }
     })
   }
 })

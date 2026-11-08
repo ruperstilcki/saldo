@@ -200,6 +200,7 @@ Prenesi logiku u TypeScript i prenesi i testove iz `android/app/src/test/`, sa i
 - **W2:** završen 2026-11-08. Korisnik je potvrdio da se zbirovi slažu sa telefonom i da prevlačenje radi. Tema, jačina boja meseci i podrazumevano skupljanje su već u Settings, jer su potrebni za tabelu.
 - **W3:** kod je gotov 2026-11-08. Provera izmena u oba smera i Undo-a posle sync-a na pravom telefonu još je na korisniku. Opcija "Show quick picks in autocomplete" je već u Settings, jer je potrebna formi.
 - **W4:** kod je gotov 2026-11-08; poređenje filtera i statistike sa telefonom je na korisniku. Grafikoni su u HTML-u, bez biblioteke. Ulaz i izlaz nemaju crvenu, jer boje ne razlikuju iznose.
+- **W5:** kod je gotov 2026-11-08. Sajt se preko service worker-a otvara bez interneta, a sačuvana sesija važi i kad token istekne bez mreže. Service worker čuva samo aplikaciju, bez finansijskih podataka. Lista za ručnu proveru je u `docs/PROVERA.md`.
 - **Testovi:** `npm test`, `npm run e2e` (lažni server u pregledaču) i `npm run test:db` (prava Postgres baza i PostgREST u Docker-u, sa pravom migracijom i izmišljenim podacima: sync između dva uređaja i izolacija naloga). Storage i pravi Android klijent nisu pokriveni ovim testovima.
 
 ## 11. Backup

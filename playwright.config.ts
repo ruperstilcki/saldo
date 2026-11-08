@@ -3,7 +3,8 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: 'e2e',
   reporter: 'list',
-  use: { baseURL: 'http://localhost:4173' },
+  // The app runs without its service worker, except in the tests that are about it.
+  use: { baseURL: 'http://localhost:4173', serviceWorkers: 'block' },
   webServer: {
     // A made-up Supabase address: every request to it is answered by the test itself.
     command: 'npx vite build --mode e2e && node e2e/serve.mjs',

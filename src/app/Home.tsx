@@ -22,6 +22,7 @@ export function useSyncText() {
   const unsent = useLiveQuery(() => db.dirtyCount(), [], 0)
   let text = 'Not synced yet'
   if (status.state === 'running') text = 'Syncing…'
+  else if (status.state === 'failed' && !navigator.onLine) text = 'Offline. Changes stay here until the connection returns.'
   else if (status.state === 'failed') text = `Sync failed: ${status.message}. Changes stay here until it works.`
   else if (status.lastSyncedAt) text = `Synced at ${formatTime(status.lastSyncedAt)}`
   return unsent > 0 ? `${text} · ${unsent} unsent` : text

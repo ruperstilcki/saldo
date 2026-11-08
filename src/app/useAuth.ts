@@ -1,9 +1,10 @@
+import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   claimLocalData, cleanUpLocalData, clearOpened, discardOtherAccount, isSessionExpired, leaveSession, markOpened, readLastOpened,
 } from '../auth/lifecycle'
 import { db } from '../db/db'
-import { setCurrentUid, supabase, syncManager } from './services'
+import { forgetStoredSession, setCurrentUid, storedUser, supabase, syncManager } from './services'
 
 export type AuthState =
   | { status: 'loading' }
@@ -11,7 +12,21 @@ export type AuthState =
   | { status: 'otherAccount'; uid: string; unsentChanges: number }
   | { status: 'signedIn'; uid: string; email: string | null }
 
-const FINAL_ROUND_LIMIT_MS = 15_000
+const FINAL_ROUND_LIMIT_MS = 8_000
+const SIGN_OUT_LIMIT_MS = 3_000
+/** With an old token the library keeps retrying for half a minute. The app must not wait that long to open. */
+const SESSION_LIMIT_MS = 3_000
+
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/** The session, null when there is none, or 'unreachable' when only the server could tell. */
+async function readSession(): Promise<Session | null | 'unreachable'> {
+  if (!navigator.onLine) return 'unreachable'
+  const result = await Promise.race([supabase.auth.getSession(), wait(SESSION_LIMIT_MS).then(() => null)])
+  if (!result) return 'unreachable'
+  if (result.data.session) return result.data.session
+  return result.error && isAuthRetryableFetchError(result.error) ? 'unreachable' : null
+}
 
 /** The final attempt must not keep the user waiting on a connection that hangs. */
 const finalRound = () =>
@@ -26,17 +41,23 @@ export function useAuth() {
   stateRef.current = state
   const leaving = useRef(false)
 
-  const leave = useCallback(async () => {
+  const leave = useCallback(async (unreachable = false) => {
     if (leaving.current) return
     leaving.current = true
+    const offline = unreachable || !navigator.onLine
     setState({ status: 'loading' })
     try {
       await leaveSession({
         db,
         store: localStorage,
-        finalRound,
+        // Without a connection there is nothing to try: unsent changes simply stay.
+        finalRound: offline ? async () => false : finalRound,
         // Local only: the default ("global") would also sign the phone out.
-        endSession: () => supabase.auth.signOut({ scope: 'local' }),
+        endSession: async () => {
+          const signOut = supabase.auth.signOut({ scope: 'local' }).catch(() => undefined)
+          await (offline ? Promise.resolve() : Promise.race([signOut, wait(SIGN_OUT_LIMIT_MS)]))
+          forgetStoredSession()
+        },
       })
     } finally {
       setCurrentUid(null)
@@ -58,22 +79,24 @@ export function useAuth() {
 
   /** Runs on every opening and return to the tab. */
   const checkOpening = useCallback(async () => {
-    const { data } = await supabase.auth.getSession()
-    const session = data.session
-    if (!session) {
+    const found = await readSession()
+    const unreachable = found === 'unreachable'
+    // Without the server, the saved session decides: a lost connection is not a sign-out.
+    const user = unreachable ? storedUser() : found ? { id: found.user.id, email: found.user.email ?? null } : null
+    if (!user) {
       setState({ status: 'signedOut' })
       return
     }
     if (isSessionExpired(readLastOpened(localStorage), Date.now())) {
-      setCurrentUid(session.user.id)
-      await claimLocalData(db, session.user.id)
-      await leave()
+      setCurrentUid(user.id)
+      await claimLocalData(db, user.id)
+      await leave(unreachable)
       return
     }
     markOpened(localStorage, Date.now())
     const current = stateRef.current
-    if (current.status === 'signedIn' && current.uid === session.user.id) void syncManager.requestRound()
-    else if (current.status !== 'otherAccount') await enter(session.user.id, session.user.email ?? null)
+    if (current.status === 'signedIn' && current.uid === user.id) void syncManager.requestRound()
+    else if (current.status !== 'otherAccount') await enter(user.id, user.email)
   }, [enter, leave])
 
   useEffect(() => {
@@ -143,5 +166,5 @@ export function useAuth() {
     setState({ status: 'signedOut' })
   }, [])
 
-  return { state, signIn, signOut: leave, confirmOtherAccount, cancelOtherAccount }
+  return { state, signIn, signOut: () => leave(), confirmOtherAccount, cancelOtherAccount }
 }
