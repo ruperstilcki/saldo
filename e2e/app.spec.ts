@@ -1206,6 +1206,53 @@ test.describe('search', () => {
     await expect(summary(page)).toContainText('2 items')
   })
 
+  test('chosen categories show as chips, and the X takes one out and updates the table', async ({ page }) => {
+    await openApp(page, statsRows, '/wallet/w1')
+    await page.getByRole('button', { name: 'Search in wallet' }).click()
+    await expect(page.getByRole('list', { name: 'Selected categories' })).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Category' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Categories' })
+    await dialog.getByLabel('Shop').check()
+    await dialog.getByLabel('Fuel').check()
+    await dialog.getByLabel('Uncategorized').check()
+    await dialog.getByRole('button', { name: 'Apply' }).click()
+
+    const chips = page.getByRole('list', { name: 'Selected categories' })
+    await expect(chips.getByRole('listitem')).toHaveCount(3)
+    await expect(chips).toContainText('Shop · Groceries')
+    await expect(page.getByRole('button', { name: 'Category (3)' })).toBeVisible()
+    await expect(summary(page)).toContainText('4 items')
+
+    await chips.getByRole('button', { name: 'Remove category: Fuel' }).click()
+    await expect(chips.getByRole('listitem')).toHaveCount(2)
+    await expect(page.getByRole('button', { name: 'Category (2)' })).toBeVisible()
+    await expect(summary(page)).toContainText('3 items')
+    await expect(page.locator('.tx', { hasText: 'Note gas' })).toHaveCount(0)
+
+    // What the dialog shows follows the chips.
+    await page.getByRole('button', { name: 'Category (2)' }).click()
+    await expect(dialog.getByLabel('Fuel')).not.toBeChecked()
+    await expect(dialog.getByLabel('Shop')).toBeChecked()
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+    await chips.getByRole('button', { name: 'Remove category: Shop' }).click()
+    await chips.getByRole('button', { name: 'Remove category: Uncategorized' }).click()
+    await expect(page.getByRole('list', { name: 'Selected categories' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Category', exact: true })).toBeVisible()
+    await expect(summary(page)).toContainText('5 items')
+  })
+
+  test('a category chosen from statistics shows as a chip too', async ({ page }) => {
+    await openApp(page, statsRows, '/statistics')
+    await page.getByRole('button', { name: 'Show transactions: Fuel' }).click()
+    const chips = page.getByRole('list', { name: 'Selected categories' })
+    await expect(chips).toContainText('Fuel')
+    await expect(summary(page)).toContainText('1 item')
+    await chips.getByRole('button', { name: 'Remove category: Fuel' }).click()
+    await expect(summary(page)).toContainText('5 items') // the whole period of the statistics
+  })
+
   test('opens a match in a month that was collapsed', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('saldo.settings', JSON.stringify({ monthsDefault: 'COLLAPSE_EXCEPT_CURRENT' })))
     await openApp(page, statsRows, '/wallet/w1')

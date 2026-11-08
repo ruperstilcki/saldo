@@ -34,102 +34,139 @@ export function FilterBar({ filter, categories, onChange }: Props) {
   }
   const badAmount = (text: string) => text.trim() !== '' && amount(text) === null
 
+  const removeCategory = (id: string) => {
+    const categoryIds = new Set(filter.categoryIds)
+    categoryIds.delete(id)
+    onChange({ ...filter, categoryIds })
+  }
+
   return (
-    <div className="filters" role="search">
-      <input
-        className="filter-query"
-        autoFocus
-        aria-label="Search"
-        placeholder="Search note, category or amount"
-        value={filter.query}
-        onChange={(e) => onChange({ ...filter, query: e.target.value })}
-      />
-      <select aria-label="Period" value={filter.period} onChange={(e) => onChange({ ...filter, period: e.target.value as PeriodPreset })}>
-        {PERIODS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select>
-      {filter.period === 'CUSTOM' && (
-        <>
-          <input
-            className="filter-small"
-            aria-label="From date"
-            placeholder="dd.MM.yyyy"
-            value={from}
-            aria-invalid={from.trim() !== '' && !parseDateText(from)}
-            onChange={(e) => {
-              setFrom(e.target.value)
-              onChange({ ...filter, customFrom: parseDateText(e.target.value) })
-            }}
-          />
-          <input
-            className="filter-small"
-            aria-label="To date"
-            placeholder="dd.MM.yyyy"
-            value={to}
-            aria-invalid={to.trim() !== '' && !parseDateText(to)}
-            onChange={(e) => {
-              setTo(e.target.value)
-              onChange({ ...filter, customTo: parseDateText(e.target.value) })
-            }}
-          />
-        </>
-      )}
-      <select aria-label="Type" value={filter.type} onChange={(e) => onChange({ ...filter, type: e.target.value as TypeFilter })}>
-        {TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select>
-      <input
-        className="filter-small"
-        inputMode="decimal"
-        aria-label="Minimum amount"
-        placeholder="Min"
-        value={min}
-        aria-invalid={badAmount(min)}
-        onChange={(e) => {
-          setMin(e.target.value)
-          onChange({ ...filter, minMinor: amount(e.target.value) })
-        }}
-      />
-      <input
-        className="filter-small"
-        inputMode="decimal"
-        aria-label="Maximum amount"
-        placeholder="Max"
-        value={max}
-        aria-invalid={badAmount(max)}
-        onChange={(e) => {
-          setMax(e.target.value)
-          onChange({ ...filter, maxMinor: amount(e.target.value) })
-        }}
-      />
-      <button type="button" onClick={() => setChoosingCategories(true)}>
-        {filter.categoryIds.size === 0 ? 'Category' : `Category (${filter.categoryIds.size})`}
-      </button>
-      {!isFilterEmpty(filter) && (
-        <button
-          type="button"
-          className="link"
-          onClick={() => {
-            setFrom('')
-            setTo('')
-            setMin('')
-            setMax('')
-            onChange(EMPTY_FILTER)
-          }}
-        >
-          Clear
-        </button>
-      )}
-      {choosingCategories && (
-        <CategoryChoice
-          selected={filter.categoryIds}
-          categories={categories}
-          onClose={() => setChoosingCategories(false)}
-          onApply={(categoryIds) => {
-            onChange({ ...filter, categoryIds })
-            setChoosingCategories(false)
+    <div className="filter-area">
+      <div className="filters" role="search">
+        <input
+          className="filter-query"
+          autoFocus
+          aria-label="Search"
+          placeholder="Search note, category or amount"
+          value={filter.query}
+          onChange={(e) => onChange({ ...filter, query: e.target.value })}
+        />
+        <select aria-label="Period" value={filter.period} onChange={(e) => onChange({ ...filter, period: e.target.value as PeriodPreset })}>
+          {PERIODS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        {filter.period === 'CUSTOM' && (
+          <>
+            <input
+              className="filter-small"
+              aria-label="From date"
+              placeholder="dd.MM.yyyy"
+              value={from}
+              aria-invalid={from.trim() !== '' && !parseDateText(from)}
+              onChange={(e) => {
+                setFrom(e.target.value)
+                onChange({ ...filter, customFrom: parseDateText(e.target.value) })
+              }}
+            />
+            <input
+              className="filter-small"
+              aria-label="To date"
+              placeholder="dd.MM.yyyy"
+              value={to}
+              aria-invalid={to.trim() !== '' && !parseDateText(to)}
+              onChange={(e) => {
+                setTo(e.target.value)
+                onChange({ ...filter, customTo: parseDateText(e.target.value) })
+              }}
+            />
+          </>
+        )}
+        <select aria-label="Type" value={filter.type} onChange={(e) => onChange({ ...filter, type: e.target.value as TypeFilter })}>
+          {TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <input
+          className="filter-small"
+          inputMode="decimal"
+          aria-label="Minimum amount"
+          placeholder="Min"
+          value={min}
+          aria-invalid={badAmount(min)}
+          onChange={(e) => {
+            setMin(e.target.value)
+            onChange({ ...filter, minMinor: amount(e.target.value) })
           }}
         />
-      )}
+        <input
+          className="filter-small"
+          inputMode="decimal"
+          aria-label="Maximum amount"
+          placeholder="Max"
+          value={max}
+          aria-invalid={badAmount(max)}
+          onChange={(e) => {
+            setMax(e.target.value)
+            onChange({ ...filter, maxMinor: amount(e.target.value) })
+          }}
+        />
+        <button type="button" onClick={() => setChoosingCategories(true)}>
+          {filter.categoryIds.size === 0 ? 'Category' : `Category (${filter.categoryIds.size})`}
+        </button>
+        {!isFilterEmpty(filter) && (
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              setFrom('')
+              setTo('')
+              setMin('')
+              setMax('')
+              onChange(EMPTY_FILTER)
+            }}
+          >
+            Clear
+          </button>
+        )}
+        {choosingCategories && (
+          <CategoryChoice
+            selected={filter.categoryIds}
+            categories={categories}
+            onClose={() => setChoosingCategories(false)}
+            onApply={(categoryIds) => {
+              onChange({ ...filter, categoryIds })
+              setChoosingCategories(false)
+            }}
+          />
+        )}
+      </div>
+  {filter.categoryIds.size > 0 && <SelectedCategories selected={filter.categoryIds} categories={categories} onRemove={removeCategory} />}
     </div>
+  )
+}
+
+interface SelectedProps {
+  selected: ReadonlySet<string>
+  categories: Category[]
+  onRemove: (id: string) => void
+}
+
+/** The chosen categories as chips under the filters. The X on a chip takes that one out of the search. */
+function SelectedCategories({ selected, categories, onRemove }: SelectedProps) {
+  const byId = new Map(categories.map((c) => [c.id, c]))
+  return (
+    <ul className="filter-chips" aria-label="Selected categories">
+      {[...selected].map((id) => {
+        const category = byId.get(id)
+        const parent = category?.parentId ? byId.get(category.parentId) : undefined
+        const name = id === UNCATEGORIZED ? 'Uncategorized' : category?.name ?? 'Deleted category'
+        const color = category?.color ?? parent?.color ?? null
+        return (
+          <li key={id} className="filter-chip" style={color === null ? undefined : { borderColor: argbToHex(color) }}>
+            <span className="swatch" style={color === null ? undefined : { backgroundColor: argbToHex(color) }} />
+            <span>{parent ? `${name} · ${parent.name}` : name}</span>
+            <button type="button" aria-label={`Remove category: ${name}`} onClick={() => onRemove(id)}>✕</button>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

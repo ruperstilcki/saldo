@@ -304,6 +304,11 @@ select { background: var(--bg); border: 1px solid var(--border); border-radius: 
 .filters input, .filters select { width: auto; }
 .filters .filter-query { flex: 1 1 240px; min-width: 0; width: 100%; }
 .filters .filter-small { flex: 0 1 112px; min-width: 76px; width: 112px; }
+.filter-area { flex: none; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+.filter-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 2px 3px 2px 9px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; }
+.filter-chip > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
+.filter-chip button { flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; font-size: 0.75rem; color: var(--muted); }
 .summary { flex: none; display: flex; flex-wrap: wrap; gap: 2px 16px; padding: 9px 16px; background: var(--surface-high); border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
 .category-choice { display: grid; gap: 2px; max-height: 55dvh; overflow-y: auto; }
 .category-choice label { display: flex; align-items: center; gap: 8px; padding: 5px 2px; cursor: pointer; }
