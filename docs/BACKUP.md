@@ -24,10 +24,10 @@ Then run it: repo → Actions → Database backup → Run workflow.
 
 ## Restore test
 
-Needs Docker, and only touches a temporary local database. Download the newest file from Drive to an empty folder and run this there:
+Needs Docker, and only touches a temporary local database. Download the newest file from Drive to an empty folder and run this there. The first command asks for the passphrase in the terminal, where you can paste it with Ctrl+Shift+V. Nothing shows while you paste, so just press Enter after it.
 
 ```sh
-gpg --output saldo.dump --decrypt saldo-*.dump.gpg
+gpg --pinentry-mode loopback --output saldo.dump --decrypt saldo-*.dump.gpg
 docker run -d --name saldo-restore -e POSTGRES_PASSWORD=temp postgres:17
 sleep 5
 docker cp saldo.dump saldo-restore:/saldo.dump

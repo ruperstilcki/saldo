@@ -361,27 +361,168 @@ test('wallets: total per currency, this month and archived kept apart', async ({
   await expect(page.getByRole('button', { name: /Old wallet/ })).toBeVisible()
 })
 
-test('dragging a wallet changes the order and syncs it', async ({ page }) => {
-  await page.setViewportSize({ width: 1400, height: 900 })
-  const server = await fakeSupabase(page, { wallets: [wallet, second, third], categories: [main], transactions: [] })
+const dragWallets = { wallets: [wallet, second, third], categories: [main], transactions: [] }
+const walletNames = (page: Page) => page.locator('.wallet-name').allInnerTexts()
+const INITIAL = ['Test wallet', 'Second wallet', 'Third wallet']
+
+async function openWalletList(page: Page) {
+  const server = await fakeSupabase(page, dragWallets)
   await signedIn(page)
   await page.goto('/')
-  const names = () => page.locator('.wallet-name').allInnerTexts()
-  await expect.poll(names).toEqual(['Test wallet', 'Second wallet', 'Third wallet'])
+  await expect.poll(() => walletNames(page)).toEqual(INITIAL)
+  return server
+}
 
-  const handle = page.getByRole('button', { name: 'Reorder' }).first()
-  const from = await handle.boundingBox()
-  const to = await page.getByRole('button', { name: 'Reorder' }).nth(2).boundingBox()
-  await page.mouse.move(from!.x + 5, from!.y + 5)
-  await page.mouse.down()
-  await page.mouse.move(from!.x + 5, to!.y + to!.height - 2, { steps: 8 })
-  await page.mouse.up()
+const cardBox = async (page: Page, name: RegExp) => (await page.getByRole('button', { name }).boundingBox())!
 
-  await expect.poll(names).toEqual(['Second wallet', 'Third wallet', 'Test wallet'])
-  await page.getByRole('button', { name: 'Sync now' }).click()
-  await expect.poll(() => server.upserts.find((u) => u.table === 'wallets')?.body.map((r) => [r.id, r.sort_order]).sort()).toEqual([
-    ['w1', 2], ['w2', 0], ['w3', 1],
-  ])
+test.describe('reordering with a mouse', () => {
+  test.use({ viewport: { width: 1400, height: 900 } })
+
+  test('dragging a card moves it, follows the pointer, and syncs the order', async ({ page }) => {
+    const server = await openWalletList(page)
+    const from = await cardBox(page, /Test wallet/)
+    const to = await cardBox(page, /Third wallet/)
+    const x = from.x + from.width / 2
+
+    await page.mouse.move(x, from.y + 20)
+    await page.mouse.down()
+    await page.mouse.move(x, to.y + to.height - 5, { steps: 12 })
+
+    // In the air: the card follows the pointer and the others made room.
+    await expect(page.locator('.card-item.dragging')).toHaveCount(1)
+    const held = await page.locator('.card-item.dragging').boundingBox()
+    expect(Math.abs(held!.y + 20 - (to.y + to.height - 5))).toBeLessThan(10)
+    await expect.poll(() => walletNames(page)).toEqual(['Second wallet', 'Third wallet', 'Test wallet'])
+
+    await page.mouse.up()
+    await expect(page.locator('.card-item.dragging')).toHaveCount(0)
+    await expect(page).toHaveURL(/\/$/) // the drop did not open the wallet
+    await expect.poll(() => walletNames(page)).toEqual(['Second wallet', 'Third wallet', 'Test wallet'])
+
+    await expect(page.getByRole('status')).toContainText('3 unsent')
+    await page.getByRole('button', { name: 'Sync now' }).click()
+    await expect.poll(() => server.upserts.find((u) => u.table === 'wallets')?.body.map((r) => [r.id, r.sort_order]).sort()).toEqual([
+      ['w1', 2], ['w2', 0], ['w3', 1],
+    ])
+    await expect(page.getByRole('status')).not.toContainText('unsent')
+  })
+
+  test('the order stays after a reload', async ({ page }) => {
+    await openWalletList(page)
+    const from = await cardBox(page, /Third wallet/)
+    const to = await cardBox(page, /Test wallet/)
+    const x = from.x + from.width / 2
+    await page.mouse.move(x, from.y + 20)
+    await page.mouse.down()
+    await page.mouse.move(x, to.y + 2, { steps: 12 })
+    await page.mouse.up()
+    await expect.poll(() => walletNames(page)).toEqual(['Third wallet', 'Test wallet', 'Second wallet'])
+    await expect(page.getByRole('status')).toContainText('unsent')
+    await page.reload()
+    await expect.poll(() => walletNames(page)).toEqual(['Third wallet', 'Test wallet', 'Second wallet'])
+  })
+
+  test('a plain click still opens the wallet', async ({ page }) => {
+    await openWalletList(page)
+    await page.getByRole('button', { name: /Second wallet/ }).click()
+    await expect(page).toHaveURL(/\/wallet\/w2$/)
+    await expect.poll(() => walletNames(page)).toEqual(INITIAL)
+  })
+
+  test('Escape puts the card back, and nothing goes out', async ({ page }) => {
+    const server = await openWalletList(page)
+    const from = await cardBox(page, /Test wallet/)
+    const to = await cardBox(page, /Third wallet/)
+    const x = from.x + from.width / 2
+    await page.mouse.move(x, from.y + 20)
+    await page.mouse.down()
+    await page.mouse.move(x, to.y + to.height - 5, { steps: 12 })
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.card-item.dragging')).toHaveCount(0)
+    await expect.poll(() => walletNames(page)).toEqual(INITIAL)
+    await page.mouse.up()
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByRole('status')).not.toContainText('unsent')
+    expect(server.upserts).toEqual([])
+  })
+
+  test('a drop back on the same place changes nothing', async ({ page }) => {
+    const server = await openWalletList(page)
+    const from = await cardBox(page, /Second wallet/)
+    const x = from.x + from.width / 2
+    await page.mouse.move(x, from.y + 20)
+    await page.mouse.down()
+    await page.mouse.move(x, from.y + 30, { steps: 4 })
+    await page.mouse.up()
+    await expect(page).toHaveURL(/\/$/)
+    await expect.poll(() => walletNames(page)).toEqual(INITIAL)
+    await expect(page.getByRole('status')).not.toContainText('unsent')
+    expect(server.upserts).toEqual([])
+  })
+
+  test('Alt with an arrow moves the focused card', async ({ page }) => {
+    await openWalletList(page)
+    await page.getByRole('button', { name: /Test wallet/ }).focus()
+    await page.keyboard.press('Alt+ArrowDown')
+    await expect.poll(() => walletNames(page)).toEqual(['Second wallet', 'Test wallet', 'Third wallet'])
+    await page.keyboard.press('Alt+ArrowUp')
+    await expect.poll(() => walletNames(page)).toEqual(INITIAL)
+    await page.keyboard.press('Alt+ArrowUp')
+    await expect.poll(() => walletNames(page)).toEqual(INITIAL)
+  })
+
+  test('there are no separate handles or arrows on a card', async ({ page }) => {
+    await openWalletList(page)
+    await expect(page.getByRole('button', { name: 'Reorder' })).toHaveCount(0)
+  })
+})
+
+test.describe('reordering with a finger', () => {
+  test.use({ viewport: { width: 390, height: 800 }, hasTouch: true })
+
+  const touch = async (page: Page) => {
+    const cdp = await page.context().newCDPSession(page)
+    const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', x?: number, y?: number) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: x === undefined ? [] : [{ x, y: y! }] })
+    return send
+  }
+
+  test('holding a card lifts it, and moving the finger reorders', async ({ page }) => {
+    await openWalletList(page)
+    const send = await touch(page)
+    const from = await cardBox(page, /Test wallet/)
+    const to = await cardBox(page, /Third wallet/)
+    const x = from.x + from.width / 2
+
+    await send('touchStart', x, from.y + 20)
+    await expect(page.locator('.card-item.dragging')).toHaveCount(1)
+    for (let y = from.y + 30; y < to.y + to.height; y += 15) await send('touchMove', x, y)
+    await expect.poll(() => walletNames(page)).toEqual(['Second wallet', 'Third wallet', 'Test wallet'])
+    await send('touchEnd')
+
+    await expect(page.locator('.card-item.dragging')).toHaveCount(0)
+    await expect(page).toHaveURL(/\/$/)
+    await expect.poll(() => walletNames(page)).toEqual(['Second wallet', 'Third wallet', 'Test wallet'])
+  })
+
+  test('a quick swipe does not pick up a card', async ({ page }) => {
+    await openWalletList(page)
+    const send = await touch(page)
+    const from = await cardBox(page, /Test wallet/)
+    const x = from.x + from.width / 2
+    await send('touchStart', x, from.y + 20)
+    for (let i = 1; i <= 8; i++) await send('touchMove', x, from.y + 20 + i * 25)
+    await page.waitForTimeout(450)
+    await expect(page.locator('.card-item.dragging')).toHaveCount(0)
+    await send('touchEnd')
+    await expect.poll(() => walletNames(page)).toEqual(INITIAL)
+  })
+
+  test('a tap opens the wallet', async ({ page }) => {
+    await openWalletList(page)
+    await page.getByRole('button', { name: /Second wallet/ }).tap()
+    await expect(page).toHaveURL(/\/wallet\/w2$/)
+  })
 })
 
 test('theme and month colors follow the settings', async ({ page }) => {

@@ -116,7 +116,7 @@ Lokalno svaki red ima `syncState` (`CLEAN` ili `DIRTY`) i `updatedAt`. Svaka lok
 
 Isti tokovi kao na telefonu (`SPEC.md` §3), ali iskoristi širinu ekrana. Na telefonu mora da radi jedna kolona, bez horizontalnog skrolovanja stranice. Na desktopu: lista wallet-a levo, tabela desno. UI je na engleskom; korisnički tekstovi ostaju kakvi jesu.
 
-- **Wallets:** kartica Total po valuti (valute se nikad ne sabiraju međusobno), potrošnja u ovom mesecu, kartice sa slikom ili inicijalima, stanjem i poslednjom transakcijom. Prevlačenje menja redosled. Arhivirani su u posebnom prikazu.
+- **Wallets:** kartica Total po valuti (valute se nikad ne sabiraju međusobno), potrošnja u ovom mesecu, kartice sa slikom ili inicijalima, stanjem i poslednjom transakcijom. Prevlačenje cele kartice menja redosled: mišem odmah, prstom posle kratkog držanja, da običan prelaz prstom skroluje listu. Arhivirani su u posebnom prikazu.
 - **Wallet (tabela):** kolone Date, Note, Amount. Header godine, zatim sticky header meseca (izlaz, ulaz, stanje na kraju meseca). Skupljanje i širenje meseci i godina. Klik na red otvara detalje sa Edit, Duplicate, Set/Remove checker, Delete + Undo.
 - **Checker:** jedan po wallet-u (`wallets.checker_transaction_id`). Kružić i okvir oko reda; "Go to checker" raširi mesec i postavi red na sredinu ekrana. Isti je kao na telefonu.
 - **Forma transakcije:** Expense/Income, iznos, datum i vreme, kategorija (autocomplete, quick chipovi, `Create "…"`), beleška, opciono strana valuta.
@@ -207,4 +207,4 @@ Nedeljni backup ide na Google Drive, a kopija na računaru se može dodati kasni
 - Backup je `pg_dump` šema `public` i `auth`. Slike nisu obuhvaćene (odluka korisnika).
 - Fajl se šifruje sa `gpg` pre slanja, pa Google i GitHub ne vide podatke. Lozinka za šifrovanje se čuva i van GitHub-a, jer se bez nje backup ne može vratiti.
 - Na Drive-u se čuva poslednjih 12 nedelja.
-- Svaki backup proverava da li se fajl dešifruje i da li sadrži svih 6 tabela. Pre prvog upisa sa weba jednom se proverava i pravo vraćanje u privremenu lokalnu bazu.
+- Svaki backup proverava da li se fajl dešifruje i da li sadrži svih 6 tabela. Pravo vraćanje u privremenu lokalnu bazu je probano samo na izmišljenim podacima; test sa pravim backup-om korisnik je odložio (2026-11-08).

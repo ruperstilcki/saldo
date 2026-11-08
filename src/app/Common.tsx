@@ -22,7 +22,7 @@ export function WalletAvatar({ wallet, large }: { wallet: Wallet; large?: boolea
   }, [blob])
 
   const className = large ? 'avatar large' : 'avatar'
-  if (url) return <img className={className} src={url} alt="" />
+  if (url) return <img className={className} src={url} alt="" draggable={false} />
   return (
     <span className={className} style={{ backgroundColor: argbToHex(wallet.color) }} aria-hidden="true">
       {initials(wallet.name)}
