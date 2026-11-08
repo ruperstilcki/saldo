@@ -26,13 +26,16 @@ interface Server {
   logouts: string[]
   offline: boolean
   uploads: { path: string; type: string | null }[]
+  files: Map<string, Buffer>
+  downloads: string[]
+  failDownloads: boolean
   /** Rows that later rounds will receive, as if another device had sent them. */
   rows: Record<string, unknown[]>
 }
 
 /** Answers everything the app asks of Supabase, and records what it sends. */
 async function fakeSupabase(page: Page, rows: Record<string, unknown[]> = { wallets: [wallet], transactions: [tx], categories: [category] }): Promise<Server> {
-  const server: Server = { upserts: [], logouts: [], offline: false, uploads: [], rows }
+  const server: Server = { upserts: [], logouts: [], offline: false, uploads: [], files: new Map(), downloads: [], failDownloads: false, rows }
   await page.route(`${SUPABASE}/**`, async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -51,6 +54,13 @@ async function fakeSupabase(page: Page, rows: Record<string, unknown[]> = { wall
           user: { id: UID, email: 'test@example.com', aud: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '' },
         },
       })
+    }
+    if (url.pathname.startsWith('/storage/v1/object/') && request.method() === 'GET') {
+      const path = url.pathname.split('/wallet-images/')[1]!
+      server.downloads.push(path)
+      const file = server.failDownloads ? undefined : server.files.get(path)
+      if (!file) return route.fulfill({ status: 400, headers: cors, json: { error: 'not_found', message: 'Object not found' } })
+      return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'image/png' }, body: file })
     }
     if (url.pathname.startsWith('/storage/v1/object/')) {
       server.uploads.push({ path: url.pathname.replace('/storage/v1/object/', ''), type: request.headers()['content-type'] ?? null })
@@ -1090,6 +1100,78 @@ test.describe('wallet form', () => {
     await sync(page)
     await expect.poll(() => saved(server, 'wallets')[0]?.deleted_at).toBeGreaterThan(0)
     await expect.poll(() => saved(server).map((r) => [r.id, typeof r.deleted_at]).sort()).toEqual([['nov', 'number'], ['oct', 'number']])
+  })
+})
+
+test.describe('images from another device', () => {
+  test.use({ viewport: { width: 1400, height: 900 } })
+
+  const withImage = { ...wallet, image_hash: 'h1' }
+  const imageRow = { ...common, hash: 'h1', remote_path: `${UID}/h1.webp`, byte_size: 100, updated_at: 13 }
+  const rows = { wallets: [withImage], images: [imageRow], categories: [category], transactions: [] }
+  const avatar = (page: Page) => page.getByRole('button', { name: /Test wallet/ }).locator('.avatar')
+  const isPicture = (page: Page) => avatar(page).evaluate((el) => el.tagName === 'IMG')
+
+  test('the picture appears as soon as it arrives, without opening the screen again', async ({ page }) => {
+    const server = await fakeSupabase(page, rows)
+    await page.goto('/')
+    server.files.set(`${UID}/h1.webp`, Buffer.from(await testPng(page)))
+    await signedIn(page)
+    await page.goto('/')
+    await expect(avatar(page)).toHaveJSProperty('tagName', 'IMG')
+  })
+
+  test('a failed download shows initials, does not stop the sync, and is tried again', async ({ page }) => {
+    const server = await fakeSupabase(page, rows)
+    await page.goto('/')
+    server.files.set(`${UID}/h1.webp`, Buffer.from(await testPng(page)))
+    server.failDownloads = true
+    await signedIn(page)
+    await page.goto('/')
+
+    await expect(page.getByRole('status')).toContainText('Synced')
+    await expect(page.getByRole('button', { name: /Test wallet/ })).toBeVisible()
+    await expect.poll(() => server.downloads.length).toBeGreaterThan(0)
+    expect(await isPicture(page)).toBe(false)
+    await expect(avatar(page)).toHaveText('TW')
+
+    // The cursor has moved past this row, so only the retry can bring the picture now.
+    server.failDownloads = false
+    await sync(page)
+    await expect(avatar(page)).toHaveJSProperty('tagName', 'IMG')
+    const after = server.downloads.length
+
+    // Once it is here, it is not fetched again.
+    await sync(page)
+    await expect(page.getByRole('status')).toContainText('Synced')
+    await page.waitForTimeout(200)
+    expect(server.downloads.length).toBe(after)
+  })
+
+  test('the picture also appears in the open wallet', async ({ page }) => {
+    const server = await fakeSupabase(page, rows)
+    await page.goto('/')
+    server.files.set(`${UID}/h1.webp`, Buffer.from(await testPng(page)))
+    server.failDownloads = true
+    await signedIn(page)
+    await page.goto('/wallet/w1')
+    await expect(page.locator('.pane-header .avatar')).toHaveText('TW')
+    server.failDownloads = false
+    await sync(page)
+    await expect(page.locator('.pane-header .avatar')).toHaveJSProperty('tagName', 'IMG')
+  })
+
+  test('an old image no wallet uses is not fetched again and again', async ({ page }) => {
+    const server = await fakeSupabase(page, { ...rows, wallets: [wallet] })
+    server.failDownloads = true
+    await signedIn(page)
+    await page.goto('/')
+    await expect(page.getByRole('status')).toContainText('Synced')
+    const first = server.downloads.length
+    await sync(page)
+    await expect(page.getByRole('status')).toContainText('Synced')
+    await page.waitForTimeout(200)
+    expect(server.downloads.length).toBe(first)
   })
 })
 
