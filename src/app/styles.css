@@ -1,0 +1,66 @@
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --text: #1b1d21;
+  --muted: #5d6470;
+  --border: #d9dde3;
+  --accent: #1f5fbf;
+  --accent-text: #ffffff;
+  --danger: #b3261e;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a;
+    --surface: #1f2226;
+    --text: #e8eaed;
+    --muted: #a3a9b3;
+    --border: #363a41;
+    --accent: #8ab4f8;
+    --accent-text: #10243f;
+    --danger: #f2b8b5;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+h1, h2 { margin: 0 0 12px; font-size: 1.1rem; }
+ul { margin: 0; padding: 0; list-style: none; }
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+button.danger { color: var(--danger); border-color: var(--danger); }
+
+.center { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; width: min(420px, 100%); }
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.muted { color: var(--muted); }
+.notice { margin: 12px 16px 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.status { color: var(--muted); }
+.spacer { flex: 1; }
+
+.layout { display: grid; gap: 16px; padding: 16px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) {
+  .layout { grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); align-items: start; }
+}
+
+.list { display: grid; gap: 6px; }
+.row { width: 100%; display: flex; gap: 12px; justify-content: space-between; align-items: baseline; text-align: left; }
+.row.selected { border-color: var(--accent); }
+.amount { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.date { white-space: nowrap; }
+.note { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+.backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / 45%); }
+textarea { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }

@@ -1,0 +1,56 @@
+# Weekly encrypted database backup to Google Drive (web/SPEC.md §10). Setup and restore: docs/BACKUP.md
+name: Database backup
+
+on:
+  schedule:
+    - cron: '17 3 * * 1' # Mondays, 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      POSTGRES_IMAGE: postgres:17
+    steps:
+      - name: Dump the database
+        env:
+          BACKUP_DB_URL: ${{ secrets.BACKUP_DB_URL }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/backup"
+          docker run --rm -e BACKUP_DB_URL -v "$RUNNER_TEMP/backup:/backup" "$POSTGRES_IMAGE" \
+            sh -c 'pg_dump "$BACKUP_DB_URL" --format=custom --no-owner --no-privileges --schema=public --schema=auth --file=/backup/saldo.dump'
+
+      - name: Check that all tables have their data in the dump
+        run: |
+          docker run --rm -v "$RUNNER_TEMP/backup:/backup" "$POSTGRES_IMAGE" pg_restore --list /backup/saldo.dump > "$RUNNER_TEMP/contents.txt"
+          for table in wallets images categories transactions recurring_rules balance_checks; do
+            grep -q "TABLE DATA public $table " "$RUNNER_TEMP/contents.txt" || { echo "Missing table: $table"; exit 1; }
+          done
+
+      - name: Encrypt, then check that it decrypts to the same file
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          cd "$RUNNER_TEMP/backup"
+          printf '%s' "$BACKUP_PASSPHRASE" > "$RUNNER_TEMP/pass"
+          gpg --batch --yes --pinentry-mode loopback --passphrase-file "$RUNNER_TEMP/pass" --symmetric --cipher-algo AES256 --output saldo.dump.gpg saldo.dump
+          gpg --batch --yes --pinentry-mode loopback --passphrase-file "$RUNNER_TEMP/pass" --decrypt --output check.dump saldo.dump.gpg
+          cmp saldo.dump check.dump
+          rm -f saldo.dump check.dump "$RUNNER_TEMP/pass"
+
+      - name: Upload to Google Drive and keep 12 weeks
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/rclone.deb" https://downloads.rclone.org/rclone-current-linux-amd64.deb
+          sudo dpkg -i "$RUNNER_TEMP/rclone.deb" > /dev/null
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 -d > "$RUNNER_TEMP/rclone.conf"
+          name="saldo-$(date -u +%Y-%m-%d).dump.gpg"
+          rclone --config "$RUNNER_TEMP/rclone.conf" copyto "$RUNNER_TEMP/backup/saldo.dump.gpg" "gdrive:SaldoBackup/$name"
+          rclone --config "$RUNNER_TEMP/rclone.conf" size "gdrive:SaldoBackup/$name" | grep -q 'Total objects: 1'
+          rclone --config "$RUNNER_TEMP/rclone.conf" delete --min-age 84d "gdrive:SaldoBackup"
+          rm -f "$RUNNER_TEMP/rclone.conf"

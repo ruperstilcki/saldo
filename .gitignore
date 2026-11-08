@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+.env
+.env.*
+!.env.example
+*.local
+# Private data must never get in here
+legacy-data/
+*.db
+*.csv
+*.dump
+*.dump.gpg
